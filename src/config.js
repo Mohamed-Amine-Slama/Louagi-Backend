@@ -1,0 +1,40 @@
+import { config as loadEnv } from 'dotenv';
+import { fileURLToPath } from 'url';
+
+loadEnv({ path: fileURLToPath(new URL('../.env', import.meta.url)) });
+
+function required(name) {
+  const v = process.env[name];
+  if (!v) {
+    console.error(`[config] Missing required env var: ${name}`);
+    process.exit(1);
+  }
+  return v;
+}
+
+const env = process.env.NODE_ENV || 'development';
+const devOtpCode = process.env.DEV_OTP_CODE || '123456';
+
+export const config = {
+  port: Number(process.env.PORT || 3000),
+  env,
+  supabaseUrl: process.env.SUPABASE_URL || '',
+  supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET || '',
+  appJwtSecret: process.env.APP_JWT_SECRET || process.env.SUPABASE_JWT_SECRET || required('APP_JWT_SECRET'),
+  devOtpCode,
+  adminImpersonationCode:
+    process.env.ADMIN_IMPERSONATION_CODE ||
+    (env === 'production' ? required('ADMIN_IMPERSONATION_CODE') : devOtpCode),
+  databaseUrl: required('DATABASE_URL'),
+  allowPrivilegedDatabaseUser: process.env.ALLOW_PRIVILEGED_DATABASE_USER === 'true',
+  corsOrigins: (process.env.CORS_ORIGINS || '*')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+  redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
+  redisSessionTtl: Number(process.env.REDIS_SESSION_TTL || 900),
+  rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
+  rateLimitMax: Number(process.env.RATE_LIMIT_MAX || 600),
+  graphqlRateLimitMax: Number(process.env.GRAPHQL_RATE_LIMIT_MAX || 120),
+};
