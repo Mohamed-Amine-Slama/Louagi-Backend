@@ -1,6 +1,8 @@
 import { verifyToken } from '../auth/tokens.js';
 import { sql } from '../db.js';
 import { getSession, setSession } from '../cache/redis.js';
+import { safeQuery } from '../lib/supabase/logger.js';
+import { withRetry } from '../lib/supabase/withRetry.js';
 
 export async function actorFromRequest(req) {
   const header = req.get('authorization') || '';
@@ -19,18 +21,26 @@ export async function actorFromRequest(req) {
     };
   }
 
-  const rows = await sql`
-    select
-      u.id,
-      u.role,
-      u.full_name,
-      u.is_active,
-      d.status as driver_status
-    from public.users u
-    left join public.drivers d on d.user_id = u.id
-    where u.id = ${claims.sub}::uuid
-    limit 1
-  `;
+  const rows = await withRetry(
+    () =>
+      safeQuery(
+        () =>
+          sql`
+            select
+              u.id,
+              u.role,
+              u.full_name,
+              u.is_active,
+              d.status as driver_status
+            from public.users u
+            left join public.drivers d on d.user_id = u.id
+            where u.id = ${claims.sub}::uuid
+            limit 1
+          `,
+        { operation: 'actorFromRequest', userId: claims.sub }
+      ).then(res => res.data),
+    { label: 'actorFromRequest' }
+  );
   const profile = rows[0];
   if (!profile || profile.is_active === false) return null;
 

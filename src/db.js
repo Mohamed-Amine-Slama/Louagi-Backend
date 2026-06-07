@@ -37,17 +37,17 @@ function assertRestrictedDatabaseUser() {
 
 assertRestrictedDatabaseUser();
 
+// ✅ Always use the pooler URL (port 6543) — direct connections (5432)
+// exhaust Postgres connection limits under load.
 export const sql = postgres(config.databaseUrl, {
   ssl: 'require',
-  // Supabase's session pooler closes idle connections aggressively — keep
-  // the pool small so we don't churn through them.
   max: 10,
   idle_timeout: 20,
   connect_timeout: 10,
   // Defer prepared-statement caching: the transaction pooler (port 6543)
-  // doesn't support it. We default to the session pooler (5432) where it
-  // works, but flipping this off is the safer cross-config setting.
+  // does not support them in transaction mode.
   prepare: false,
+  connection: { search_path: 'public' },
 });
 
 export async function ping() {

@@ -12,19 +12,12 @@ import {
   signRefreshToken,
   verifyToken,
 } from '../auth/tokens.js';
+import { normalizeTunisianPhone, sanitize, validateEmail, validateFileSize, validateName, validateOtp, validatePassword, validatePlate, validateSeatCount, validateTunisianPhone } from '../utils/validation.js';
 import { can } from '../utils/rbac.js';
-import {
-  normalizeTunisianPhone,
-  sanitize,
-  validateEmail,
-  validateFileSize,
-  validateName,
-  validateOtp,
-  validatePassword,
-  validatePlate,
-  validateSeatCount,
-  validateTunisianPhone,
-} from '../utils/validation.js';
+import { logSupabaseError, safeQuery } from '../lib/supabase/logger.js';
+import { dbBreaker } from '../lib/supabase/CircuitBreaker.js';
+import { withRetry } from '../lib/supabase/withRetry.js';
+import { withTimeout } from '../lib/supabase/withTimeout.js';
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -202,66 +195,70 @@ async function loadUserSession(userId, { includeRefreshToken = true } = {}) {
 }
 
 async function listReservationsFor(actor, status, id) {
-  const rows = await sql`
-    select
-      res.id as reservation_id,
-      res.user_id as reservation_user_id,
-      res.ride_id as reservation_ride_id,
-      res.seats_booked as reservation_seats_booked,
-      res.total_price as reservation_total_price,
-      res.status as reservation_status,
-      res.idempotency_key as reservation_idempotency_key,
-      res.booked_at as reservation_booked_at,
-      res.cancelled_at as reservation_cancelled_at,
-      r.id as ride_id,
-      r.driver_id as ride_driver_id,
-      r.route_id as ride_route_id,
-      r.departure_time as ride_departure_time,
-      r.available_seats as ride_available_seats,
-      r.total_seats as ride_total_seats,
-      r.price_per_seat as ride_price_per_seat,
-      r.status as ride_status,
-      r.created_at as ride_created_at,
-      rt.id as route_id,
-      rt.origin_city as route_origin_city,
-      rt.destination_city as route_destination_city,
-      rt.distance_km as route_distance_km,
-      rt.estimated_duration_min as route_estimated_duration_min,
-      rt.base_price as route_base_price,
-      rt.created_at as route_created_at,
-      d.id as driver_id,
-      d.vehicle_brand as driver_vehicle_brand,
-      d.vehicle_model as driver_vehicle_model,
-      d.seat_count as driver_seat_count,
-      d.status as driver_status,
-      d.rating as driver_rating,
-      d.trips_completed as driver_trips_completed,
-      du.id as driver_user_id,
-      du.full_name as driver_full_name,
-      du.email as driver_email,
-      p.id as payment_id,
-      p.method as payment_method,
-      p.amount as payment_amount,
-      p.status as payment_status,
-      p.gateway_reference as payment_gateway_reference,
-      p.flagged as payment_flagged,
-      p.paid_at as payment_paid_at,
-      p.refunded_at as payment_refunded_at
-    from public.reservations res
-    join public.rides r on r.id = res.ride_id
-    join public.routes rt on rt.id = r.route_id
-    left join public.drivers d on d.id = r.driver_id
-    left join public.users du on du.id = d.user_id
-    left join public.payments p on p.reservation_id = res.id
-    where (${id ?? null}::uuid is null or res.id = ${id ?? null}::uuid)
-      and (${status ?? null}::reservation_status is null or res.status = ${status ?? null}::reservation_status)
-      and (
-        ${actor.role} = 'admin'
-        or res.user_id = ${actor.id}::uuid
-        or d.user_id = ${actor.id}::uuid
-      )
-    order by res.booked_at desc
-  `;
+  const rows = await withTimeout(
+    sql`
+      select
+        res.id as reservation_id,
+        res.user_id as reservation_user_id,
+        res.ride_id as reservation_ride_id,
+        res.seats_booked as reservation_seats_booked,
+        res.total_price as reservation_total_price,
+        res.status as reservation_status,
+        res.idempotency_key as reservation_idempotency_key,
+        res.booked_at as reservation_booked_at,
+        res.cancelled_at as reservation_cancelled_at,
+        r.id as ride_id,
+        r.driver_id as ride_driver_id,
+        r.route_id as ride_route_id,
+        r.departure_time as ride_departure_time,
+        r.available_seats as ride_available_seats,
+        r.total_seats as ride_total_seats,
+        r.price_per_seat as ride_price_per_seat,
+        r.status as ride_status,
+        r.created_at as ride_created_at,
+        rt.id as route_id,
+        rt.origin_city as route_origin_city,
+        rt.destination_city as route_destination_city,
+        rt.distance_km as route_distance_km,
+        rt.estimated_duration_min as route_estimated_duration_min,
+        rt.base_price as route_base_price,
+        rt.created_at as route_created_at,
+        d.id as driver_id,
+        d.vehicle_brand as driver_vehicle_brand,
+        d.vehicle_model as driver_vehicle_model,
+        d.seat_count as driver_seat_count,
+        d.status as driver_status,
+        d.rating as driver_rating,
+        d.trips_completed as driver_trips_completed,
+        du.id as driver_user_id,
+        du.full_name as driver_full_name,
+        du.email as driver_email,
+        p.id as payment_id,
+        p.method as payment_method,
+        p.amount as payment_amount,
+        p.status as payment_status,
+        p.gateway_reference as payment_gateway_reference,
+        p.flagged as payment_flagged,
+        p.paid_at as payment_paid_at,
+        p.refunded_at as payment_refunded_at
+      from public.reservations res
+      join public.rides r on r.id = res.ride_id
+      join public.routes rt on rt.id = r.route_id
+      left join public.drivers d on d.id = r.driver_id
+      left join public.users du on du.id = d.user_id
+      left join public.payments p on p.reservation_id = res.id
+      where (${id ?? null}::uuid is null or res.id = ${id ?? null}::uuid)
+        and (${status ?? null}::reservation_status is null or res.status = ${status ?? null}::reservation_status)
+        and (
+          ${actor.role} = 'admin'
+          or res.user_id = ${actor.id}::uuid
+          or d.user_id = ${actor.id}::uuid
+        )
+      order by res.booked_at desc
+    `,
+    8000,
+    'listReservationsFor'
+  );
 
   return rows.map((row) => ({
     reservation: reservationFrom(row),
@@ -300,38 +297,42 @@ async function listReservationsFor(actor, status, id) {
 }
 
 async function joinedRides() {
-  return sql`
-    select
-      r.id as ride_id,
-      r.driver_id as ride_driver_id,
-      r.route_id as ride_route_id,
-      r.departure_time as ride_departure_time,
-      r.available_seats as ride_available_seats,
-      r.total_seats as ride_total_seats,
-      r.price_per_seat as ride_price_per_seat,
-      r.status as ride_status,
-      r.created_at as ride_created_at,
-      rt.id as route_id,
-      rt.origin_city as route_origin_city,
-      rt.destination_city as route_destination_city,
-      rt.distance_km as route_distance_km,
-      rt.estimated_duration_min as route_estimated_duration_min,
-      rt.base_price as route_base_price,
-      rt.created_at as route_created_at,
-      d.id as driver_id,
-      d.user_id as driver_user_id,
-      d.vehicle_brand as driver_vehicle_brand,
-      d.vehicle_model as driver_vehicle_model,
-      d.seat_count as driver_seat_count,
-      d.status as driver_status,
-      d.rating as driver_rating,
-      d.trips_completed as driver_trips_completed,
-      u.full_name as driver_full_name
-    from public.rides r
-    join public.routes rt on rt.id = r.route_id
-    left join public.drivers d on d.id = r.driver_id
-    left join public.users u on u.id = d.user_id
-  `;
+  return withTimeout(
+    sql`
+      select
+        r.id as ride_id,
+        r.driver_id as ride_driver_id,
+        r.route_id as ride_route_id,
+        r.departure_time as ride_departure_time,
+        r.available_seats as ride_available_seats,
+        r.total_seats as ride_total_seats,
+        r.price_per_seat as ride_price_per_seat,
+        r.status as ride_status,
+        r.created_at as ride_created_at,
+        rt.id as route_id,
+        rt.origin_city as route_origin_city,
+        rt.destination_city as route_destination_city,
+        rt.distance_km as route_distance_km,
+        rt.estimated_duration_min as route_estimated_duration_min,
+        rt.base_price as route_base_price,
+        rt.created_at as route_created_at,
+        d.id as driver_id,
+        d.user_id as driver_user_id,
+        d.vehicle_brand as driver_vehicle_brand,
+        d.vehicle_model as driver_vehicle_model,
+        d.seat_count as driver_seat_count,
+        d.status as driver_status,
+        d.rating as driver_rating,
+        d.trips_completed as driver_trips_completed,
+        u.full_name as driver_full_name
+      from public.rides r
+      join public.routes rt on rt.id = r.route_id
+      left join public.drivers d on d.id = r.driver_id
+      left join public.users u on u.id = d.user_id
+    `,
+    8000,
+    'joinedRides'
+  );
 }
 
 function toRideResult(row) {
@@ -361,7 +362,7 @@ export const resolvers = {
         u.role,
         u.full_name,
         u.is_active,
-        u.password_hash = crypt(${password || ''}, u.password_hash) as password_ok
+        u.password_hash = extensions.crypt(${password || ''}, u.password_hash) as password_ok
       from public.users u
       where u.phone_number = ${normalizedPhone}
       limit 1
@@ -451,7 +452,7 @@ export const resolvers = {
         ${normalizedPhone},
         ${email.toLowerCase()},
         ${role}::user_role,
-        crypt(${password}, gen_salt('bf')),
+        extensions.crypt(${password}, extensions.gen_salt('bf')),
         true
       )
       returning id, role
@@ -853,15 +854,19 @@ export const resolvers = {
     };
     if (!driver) return empty;
 
-    const rows = await sql`
-      select
-        r.*,
-        rt.origin_city,
-        rt.destination_city
-      from public.rides r
-      join public.routes rt on rt.id = r.route_id
-      where r.driver_id = ${driver.id}::uuid
-    `;
+    const rows = await withTimeout(
+      sql`
+        select
+          r.*,
+          rt.origin_city,
+          rt.destination_city
+        from public.rides r
+        join public.routes rt on rt.id = r.route_id
+        where r.driver_id = ${driver.id}::uuid
+      `,
+      8000,
+      'DriverEarnings'
+    );
 
     const now = Date.now();
     const dayMs = 86400 * 1000;
@@ -1006,113 +1011,123 @@ export const resolvers = {
     const key = idempotencyKey || crypto.randomBytes(10).toString('hex');
     const seatCount = Number(seats || 1);
 
-    return sql.begin(async (tx) => {
-      const replay = await tx`
-        select *
-        from public.reservations
-        where user_id = ${actor.id}::uuid and idempotency_key = ${key}
-        limit 1
-      `;
-      if (replay.length) {
-        return {
-          ok: true,
-          reservation: { ...replay[0], total_price: toNumber(replay[0].total_price) },
-          replay: true,
-        };
-      }
+    return dbBreaker.call(() =>
+      withRetry(() =>
+        safeQuery(
+          () =>
+            sql.begin(async (tx) => {
+              const replay = await tx`
+                select *
+                from public.reservations
+                where user_id = ${actor.id}::uuid and idempotency_key = ${key}
+                limit 1
+              `;
+              if (replay.length) {
+                return {
+                  ok: true,
+                  reservation: { ...replay[0], total_price: toNumber(replay[0].total_price) },
+                  replay: true,
+                };
+              }
 
-      const rideRows = await tx`
-        select *
-        from public.rides
-        where id = ${rideId}::uuid
-        for update
-      `;
-      const ride = rideRows[0];
-      if (!ride) return { ok: false, error: 'Ride not found' };
-      if (ride.status !== 'scheduled') return { ok: false, error: 'Ride no longer accepting bookings' };
-      if (ride.available_seats < seatCount) return { ok: false, error: 'Not enough seats' };
+              const rideRows = await tx`
+                select *
+                from public.rides
+                where id = ${rideId}::uuid
+                for update
+              `;
+              const ride = rideRows[0];
+              if (!ride) return { ok: false, error: 'Ride not found' };
+              if (ride.status !== 'scheduled') return { ok: false, error: 'Ride no longer accepting bookings' };
+              if (ride.available_seats < seatCount) return { ok: false, error: 'Not enough seats' };
 
-      const seatCost = Number(ride.price_per_seat) * seatCount;
-      const totalPrice = seatCost + PLATFORM_FEE + DRIVER_FEE;
-      const reservations = await tx`
-        insert into public.reservations (
-          user_id,
-          ride_id,
-          seats_booked,
-          total_price,
-          status,
-          idempotency_key
-        ) values (
-          ${actor.id}::uuid,
-          ${rideId}::uuid,
-          ${seatCount},
-          ${totalPrice},
-          'confirmed',
-          ${key}
-        )
-        returning *
-      `;
-      await tx`
-        update public.rides
-        set available_seats = available_seats - ${seatCount}
-        where id = ${rideId}::uuid
-      `;
-      const prefix = paymentMethod === 'cash' ? 'CASH' : 'PAY';
-      const payments = await tx`
-        insert into public.payments (
-          reservation_id,
-          method,
-          amount,
-          platform_fee,
-          driver_fee,
-          status,
-          gateway_reference
-        ) values (
-          ${reservations[0].id}::uuid,
-          ${paymentMethod}::payment_method,
-          ${totalPrice},
-          ${PLATFORM_FEE},
-          ${DRIVER_FEE},
-          'succeeded',
-          ${paymentReference(prefix)}
-        )
-        returning *
-      `;
-      const driverRows = await tx`
-        select d.user_id
-        from public.drivers d
-        where d.id = ${ride.driver_id}::uuid
-        limit 1
-      `;
-      if (driverRows[0]) {
-        await tx`
-          insert into public.notifications (user_id, title, body)
-          values (
-            ${driverRows[0].user_id}::uuid,
-            'New booking',
-            ${`${seatCount} seat${seatCount > 1 ? 's' : ''} reserved on your ride.`}
-          )
-        `;
-      }
-      await tx`
-        insert into public.audit_log (
-          actor_id, actor_role, action, target_entity, target_id, metadata, ip_address
-        ) values (
-          ${actor.id}::uuid,
-          ${actor.role}::user_role,
-          'reservation.confirmed',
-          'reservation',
-          ${reservations[0].id}::uuid,
-          ${JSON.stringify({ amount: totalPrice, seatCost, platformFee: PLATFORM_FEE, driverFee: DRIVER_FEE, gateway: payments[0].gateway_reference })}::jsonb,
-          ${ctx.ip ?? 'server'}
-        )
-      `;
-      return {
-        ok: true,
-        reservation: { ...reservations[0], total_price: toNumber(reservations[0].total_price) },
-        payment: paymentFrom(payments[0]),
-      };
-    });
+              const seatCost = Number(ride.price_per_seat) * seatCount;
+              const totalPrice = seatCost + PLATFORM_FEE + DRIVER_FEE;
+              const reservations = await tx`
+                insert into public.reservations (
+                  user_id,
+                  ride_id,
+                  seats_booked,
+                  total_price,
+                  status,
+                  idempotency_key
+                ) values (
+                  ${actor.id}::uuid,
+                  ${rideId}::uuid,
+                  ${seatCount},
+                  ${totalPrice},
+                  'confirmed',
+                  ${key}
+                )
+                returning *
+              `;
+              await tx`
+                update public.rides
+                set available_seats = available_seats - ${seatCount}
+                where id = ${rideId}::uuid
+              `;
+              const prefix = paymentMethod === 'cash' ? 'CASH' : 'PAY';
+              const payments = await tx`
+                insert into public.payments (
+                  reservation_id,
+                  method,
+                  amount,
+                  platform_fee,
+                  driver_fee,
+                  status,
+                  gateway_reference
+                ) values (
+                  ${reservations[0].id}::uuid,
+                  ${paymentMethod}::payment_method,
+                  ${totalPrice},
+                  ${PLATFORM_FEE},
+                  ${DRIVER_FEE},
+                  'succeeded',
+                  ${paymentReference(prefix)}
+                )
+                returning *
+              `;
+              const driverRows = await tx`
+                select d.user_id
+                from public.drivers d
+                where d.id = ${ride.driver_id}::uuid
+                limit 1
+              `;
+              if (driverRows[0]) {
+                await tx`
+                  insert into public.notifications (user_id, title, body)
+                  values (
+                    ${driverRows[0].user_id}::uuid,
+                    'New booking',
+                    ${`${seatCount} seat${seatCount > 1 ? 's' : ''} reserved on your ride.`}
+                  )
+                `;
+              }
+              await tx`
+                insert into public.audit_log (
+                  actor_id, actor_role, action, target_entity, target_id, metadata, ip_address
+                ) values (
+                  ${actor.id}::uuid,
+                  ${actor.role}::user_role,
+                  'reservation.confirmed',
+                  'reservation',
+                  ${reservations[0].id}::uuid,
+                  ${JSON.stringify({ amount: totalPrice, seatCost, platformFee: PLATFORM_FEE, driverFee: DRIVER_FEE, gateway: payments[0].gateway_reference })}::jsonb,
+                  ${ctx.ip ?? 'server'}
+                )
+              `;
+              return {
+                ok: true,
+                reservation: { ...reservations[0], total_price: toNumber(reservations[0].total_price) },
+                payment: paymentFrom(payments[0]),
+              };
+            }),
+          { operation: 'CreateReservation' }
+        ),
+        { label: 'CreateReservation' }
+      ),
+      'CreateReservation'
+    );
   },
 
   async ListReservations({ status }, ctx) {
@@ -1541,7 +1556,7 @@ export const resolvers = {
       const err = validatePassword(newPassword);
       if (err) errors.newPassword = err;
       const okRows = await sql`
-        select password_hash = crypt(${currentPassword || ''}, password_hash) as ok
+        select password_hash = extensions.crypt(${currentPassword || ''}, password_hash) as ok
         from public.users
         where id = ${actor.id}::uuid
       `;
@@ -1556,7 +1571,7 @@ export const resolvers = {
         email = coalesce(${email != null ? email.toLowerCase() : null}, email),
         password_hash = case
           when ${newPassword || null}::text is null then password_hash
-          else crypt(${newPassword || null}, gen_salt('bf'))
+          else extensions.crypt(${newPassword || null}, extensions.gen_salt('bf'))
         end
       where id = ${actor.id}::uuid
     `;
@@ -1583,7 +1598,7 @@ export const resolvers = {
   async DeleteAccount({ password }, ctx) {
     const actor = await requireActor(ctx);
     const rows = await sql`
-      select password_hash = crypt(${password || ''}, password_hash) as ok
+      select password_hash = extensions.crypt(${password || ''}, password_hash) as ok
       from public.users
       where id = ${actor.id}::uuid
     `;
@@ -1668,17 +1683,21 @@ export const resolvers = {
     const denied = assertCan(actor, 'admin:read');
     if (denied) return [];
     const query = (q || '').trim().toLowerCase();
-    const rows = await sql`
-      select
-        u.*,
-        d.id as driver_id,
-        d.vehicle_brand,
-        d.vehicle_model,
-        d.status as driver_status
-      from public.users u
-      left join public.drivers d on d.user_id = u.id
-      order by u.created_at desc
-    `;
+    const rows = await withTimeout(
+      sql`
+        select
+          u.*,
+          d.id as driver_id,
+          d.vehicle_brand,
+          d.vehicle_model,
+          d.status as driver_status
+        from public.users u
+        left join public.drivers d on d.user_id = u.id
+        order by u.created_at desc
+      `,
+      8000,
+      'AdminSearchUsers'
+    );
     return rows
       .filter((row) => {
         if (!query) return true;
@@ -1933,107 +1952,117 @@ export const resolvers = {
     const price = TIER_PRICES[tier];
     const label = TIER_LABELS[tier];
 
-    return sql.begin(async (tx) => {
-      // Lock the ride and check slot availability
-      const rideRows = await tx`
-        select id, accepts_delivery, max_delivery_slots, delivery_slots_taken, driver_id
-        from public.rides
-        where id = ${rideId}::uuid and status = 'scheduled'
-        for update
-      `;
-      const ride = rideRows[0];
-      if (!ride) return { ok: false, error: 'Ride not found or not scheduled' };
-      if (!ride.accepts_delivery) return { ok: false, error: 'This ride does not accept deliveries' };
-      if (ride.delivery_slots_taken >= ride.max_delivery_slots) {
-        return { ok: false, error: 'No delivery slots available' };
-      }
+    return dbBreaker.call(() =>
+      withRetry(() =>
+        safeQuery(
+          () =>
+            sql.begin(async (tx) => {
+              // Lock the ride and check slot availability
+              const rideRows = await tx`
+                select id, accepts_delivery, max_delivery_slots, delivery_slots_taken, driver_id
+                from public.rides
+                where id = ${rideId}::uuid and status = 'scheduled'
+                for update
+              `;
+              const ride = rideRows[0];
+              if (!ride) return { ok: false, error: 'Ride not found or not scheduled' };
+              if (!ride.accepts_delivery) return { ok: false, error: 'This ride does not accept deliveries' };
+              if (ride.delivery_slots_taken >= ride.max_delivery_slots) {
+                return { ok: false, error: 'No delivery slots available' };
+              }
 
-      // Insert delivery
-      const deliveries = await tx`
-        insert into public.delivery (
-          user_id, ride_id, severity_tier, severity_label,
-          item_description, price, status
-        ) values (
-          ${actor.id}::uuid,
-          ${rideId}::uuid,
-          ${tier},
-          ${label},
-          ${description ? sanitize(description) : null},
-          ${price},
-          'pending'
-        )
-        returning *
-      `;
+              // Insert delivery
+              const deliveries = await tx`
+                insert into public.delivery (
+                  user_id, ride_id, severity_tier, severity_label,
+                  item_description, price, status
+                ) values (
+                  ${actor.id}::uuid,
+                  ${rideId}::uuid,
+                  ${tier},
+                  ${label},
+                  ${description ? sanitize(description) : null},
+                  ${price},
+                  'pending'
+                )
+                returning *
+              `;
 
-      // Increment slot counter
-      await tx`
-        update public.rides
-        set delivery_slots_taken = delivery_slots_taken + 1
-        where id = ${rideId}::uuid
-      `;
+              // Increment slot counter
+              await tx`
+                update public.rides
+                set delivery_slots_taken = delivery_slots_taken + 1
+                where id = ${rideId}::uuid
+              `;
 
-      // Create payment for delivery
-      const payments = await tx`
-        insert into public.payments (
-          delivery_id,
-          method,
-          amount,
-          platform_fee,
-          driver_fee,
-          status,
-          gateway_reference
-        ) values (
-          ${deliveries[0].id}::uuid,
-          'card'::payment_method,
-          ${price},
-          ${0},
-          ${0},
-          'succeeded',
-          ${paymentReference('DEL')}
-        )
-        returning *
-      `;
+              // Create payment for delivery
+              const payments = await tx`
+                insert into public.payments (
+                  delivery_id,
+                  method,
+                  amount,
+                  platform_fee,
+                  driver_fee,
+                  status,
+                  gateway_reference
+                ) values (
+                  ${deliveries[0].id}::uuid,
+                  'card'::payment_method,
+                  ${price},
+                  ${0},
+                  ${0},
+                  'succeeded',
+                  ${paymentReference('DEL')}
+                )
+                returning *
+              `;
 
-      // Notify driver
-      const driverRows = await tx`
-        select d.user_id from public.drivers d where d.id = ${ride.driver_id}::uuid limit 1
-      `;
-      if (driverRows[0]) {
-        await tx`
-          insert into public.notifications (user_id, title, body)
-          values (
-            ${driverRows[0].user_id}::uuid,
-            'New delivery booked',
-            ${`A ${label.toLowerCase()} delivery has been booked on your ride.`}
-          )
-        `;
-      }
+              // Notify driver
+              const driverRows = await tx`
+                select d.user_id from public.drivers d where d.id = ${ride.driver_id}::uuid limit 1
+              `;
+              if (driverRows[0]) {
+                await tx`
+                  insert into public.notifications (user_id, title, body)
+                  values (
+                    ${driverRows[0].user_id}::uuid,
+                    'New delivery booked',
+                    ${`A ${label.toLowerCase()} delivery has been booked on your ride.`}
+                  )
+                `;
+              }
 
-      await tx`
-        insert into public.audit_log (
-          actor_id, actor_role, action, target_entity, target_id, metadata, ip_address
-        ) values (
-          ${actor.id}::uuid,
-          ${actor.role}::user_role,
-          'delivery.created',
-          'delivery',
-          ${deliveries[0].id}::uuid,
-          ${JSON.stringify({ price, tier, label })}::jsonb,
-          ${ctx.ip ?? 'server'}
-        )
-      `;
+              await tx`
+                insert into public.audit_log (
+                  actor_id, actor_role, action, target_entity, target_id, metadata, ip_address
+                ) values (
+                  ${actor.id}::uuid,
+                  ${actor.role}::user_role,
+                  'delivery.created',
+                  'delivery',
+                  ${deliveries[0].id}::uuid,
+                  ${JSON.stringify({ price, tier, label })}::jsonb,
+                  ${ctx.ip ?? 'server'}
+                )
+              `;
 
-      return {
-        ok: true,
-        delivery: {
-          id: deliveries[0].id,
-          status: deliveries[0].status,
-          price: toNumber(deliveries[0].price),
-          severity_label: deliveries[0].severity_label,
-        },
-        payment: paymentFrom(payments[0]),
-      };
-    });
+              return {
+                ok: true,
+                delivery: {
+                  id: deliveries[0].id,
+                  status: deliveries[0].status,
+                  price: toNumber(deliveries[0].price),
+                  severity_label: deliveries[0].severity_label,
+                },
+                payment: paymentFrom(payments[0]),
+              };
+            }),
+          { operation: 'CreateDelivery' }
+        ),
+        { label: 'CreateDelivery' }
+      ),
+      'CreateDelivery'
+    );
   },
 
   async UpdateDeliveryStatus({ id, status }, ctx) {
