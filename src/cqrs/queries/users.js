@@ -1,4 +1,5 @@
-// User read paths — GetProfile (with server-side stats aggregate) + ExportMyData.
+// User read paths — GetProfile (with stats + preferences + payment_method)
+// and RequestDataExport (GDPR data dump).
 
 import { sql } from '../../db.js';
 import { toNumber, appendAudit } from '../../graphql/helpers.js';
@@ -8,7 +9,8 @@ async function GetProfile(_input, ctx) {
   const actor = ctx.actor;
   const [userRows, statsRows, favRows] = await Promise.all([
     sql`
-      select id, full_name, email, phone_number, role, notifications, created_at
+      select id, full_name, email, phone_number, role, notifications,
+             preferences, payment_account, created_at
       from public.users
       where id = ${actor.id}::uuid
       limit 1
@@ -43,6 +45,9 @@ async function GetProfile(_input, ctx) {
     role: user.role,
     created_at: user.created_at,
     notifications: user.notifications ?? { sms: true, push: true },
+    preferences: user.preferences ?? {},
+    // Client expects the legacy key `payment_method` for the account info.
+    payment_method: user.payment_account ?? null,
     stats: {
       trips: statsRows[0]?.trips ?? 0,
       spent: toNumber(statsRows[0]?.spent) ?? 0,
@@ -51,16 +56,32 @@ async function GetProfile(_input, ctx) {
   };
 }
 
-async function ExportMyData(_input, ctx) {
+// Renamed from the legacy ExportMyData/REST `/my-data` op to match the client's
+// call name. Includes support_tickets which the mock surfaced.
+async function RequestDataExport(_input, ctx) {
   const actor = ctx.actor;
-  const [userRows, reservations, rides] = await Promise.all([
+  const [userRows, reservations, rides, deliveries, supportTickets] = await Promise.all([
     sql`select id, full_name, role, created_at from public.users where id = ${actor.id}::uuid`,
-    sql`select id, ride_id, seats_booked, total_price, status, booked_at from public.reservations where user_id = ${actor.id}::uuid`,
+    sql`
+      select id, ride_id, seats_booked, total_price, status, booked_at, cancelled_at
+      from public.reservations
+      where user_id = ${actor.id}::uuid
+    `,
     sql`
       select r.id, r.departure_time, r.status, r.created_at
       from public.rides r
       left join public.drivers d on d.id = r.driver_id
       where d.user_id = ${actor.id}::uuid
+    `,
+    sql`
+      select id, ride_id, item_description as description, status, price, booked_at as created_at
+      from public.delivery
+      where user_id = ${actor.id}::uuid
+    `,
+    sql`
+      select id, topic, status, created_at
+      from public.support_tickets
+      where user_id = ${actor.id}::uuid
     `,
   ]);
   await appendAudit({
@@ -70,10 +91,20 @@ async function ExportMyData(_input, ctx) {
     targetId: actor.id,
     ip: ctx.ip,
   });
-  return { ok: true, data: { user: userRows[0], reservations, rides } };
+  return {
+    ok: true,
+    export: {
+      generated_at: new Date().toISOString(),
+      profile: userRows[0],
+      reservations,
+      rides,
+      deliveries,
+      support_tickets: supportTickets,
+    },
+  };
 }
 
-export const queries = { GetProfile, ExportMyData };
+export const queries = { GetProfile, RequestDataExport };
 
 export const meta = {
   GetProfile: { cache: { key: (_, ctx) => cacheKey.profile(ctx.actor.id), ttl: 60 } },

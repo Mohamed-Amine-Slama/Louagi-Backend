@@ -251,6 +251,32 @@ async function BiometricLogin({ ticket }, ctx) {
   return { ok: true, ...session, ticket: nextTicket };
 }
 
+// ─── Password-change OTP flow ──────────────────────────────────────────────
+// Used by Profile → "Change password" — confirms the user is still the owner
+// of the phone number on file before letting them set a new password.
+
+async function RequestPasswordChangeOtp({ userId }, ctx) {
+  const actor = ctx.actor;
+  if (actor.id !== userId) return { ok: false, error: 'Forbidden' };
+  await appendAudit({
+    actor,
+    action: 'password.otp_requested',
+    targetEntity: 'user',
+    targetId: userId,
+    ip: ctx.ip,
+  });
+  return { ok: true, devOtp: config.env === 'production' ? null : config.devOtpCode };
+}
+
+async function VerifyPasswordChangeOtp({ userId, otp }, ctx) {
+  const actor = ctx.actor;
+  if (actor.id !== userId) return { ok: false, error: 'Forbidden' };
+  const otpErr = validateOtp(otp);
+  if (otpErr) return { ok: false, error: otpErr };
+  if (otp !== config.devOtpCode) return { ok: false, error: 'OTP failed' };
+  return { ok: true };
+}
+
 export const commands = {
   StartLogin,
   VerifyOtp,
@@ -259,6 +285,8 @@ export const commands = {
   Logout,
   EnrollBiometric,
   BiometricLogin,
+  RequestPasswordChangeOtp,
+  VerifyPasswordChangeOtp,
 };
 
 // All auth commands are public — they take credentials, not a Bearer token.

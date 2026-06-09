@@ -28,6 +28,8 @@ export const CreateRideSchema = z.object({
   destination: z.string().min(2).max(50).optional().nullable(),
   routeId: z.string().uuid().optional().nullable(),
   departureTime: z.union([z.string(), z.date()]),
-  pricePerSeat: z.number().positive(),
+  // Accepted for backwards compat with older clients, but ignored — the server
+  // forces `price_per_seat` to the government-set base_price.
+  pricePerSeat: z.number().positive().optional(),
   availableSeats: z.number().int().min(1).max(8)
 });

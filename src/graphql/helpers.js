@@ -96,6 +96,7 @@ export function rideFrom(row, prefix = 'ride_') {
     total_seats: row[`${prefix}total_seats`],
     price_per_seat: toNumber(row[`${prefix}price_per_seat`]),
     status: row[`${prefix}status`],
+    accepts_delivery: row[`${prefix}accepts_delivery`],
     created_at: row[`${prefix}created_at`],
   };
 }
@@ -257,6 +258,7 @@ export async function joinedRides({ driverId, rideId, status } = {}) {
         r.total_seats as ride_total_seats,
         r.price_per_seat as ride_price_per_seat,
         r.status as ride_status,
+        r.accepts_delivery as ride_accepts_delivery,
         r.created_at as ride_created_at,
         rt.id as route_id,
         rt.origin_city as route_origin_city,
@@ -299,6 +301,7 @@ export function toRideResult(row) {
     total_seats: ride.total_seats,
     price_per_seat: ride.price_per_seat,
     status: ride.status,
+    accepts_delivery: ride.accepts_delivery,
     created_at: ride.created_at,
   };
 }

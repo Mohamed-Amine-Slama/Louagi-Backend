@@ -9,7 +9,7 @@ import {
 import { eventBus } from '../event-bus.js';
 import { Events } from '../events.js';
 
-async function CreateRide({ origin, destination, routeId, departureTime, pricePerSeat, availableSeats }, ctx) {
+async function CreateRide({ origin, destination, routeId, departureTime, availableSeats }, ctx) {
   const actor = ctx.actor;
   const denied = assertCan(actor, 'rides:create');
   if (denied) return denied;
@@ -47,12 +47,9 @@ async function CreateRide({ origin, destination, routeId, departureTime, pricePe
   if (seats < 1 || seats > driver.seat_count) {
     return { ok: false, error: `Seats must be 1-${driver.seat_count}` };
   }
-  const min = Number(route.base_price) * 0.5;
-  const max = Number(route.base_price) * 1.5;
-  const price = Number(pricePerSeat);
-  if (price < min || price > max) {
-    return { ok: false, error: `Price must be ${min.toFixed(0)}-${max.toFixed(0)} TND` };
-  }
+  // Government-set fare. The driver cannot override this — every ride on the
+  // same route charges the same per-seat amount.
+  const price = Number(route.base_price);
 
   const rows = await sql`
     insert into public.rides (
