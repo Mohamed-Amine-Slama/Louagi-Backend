@@ -13,15 +13,19 @@ function randomId(bytes = 12) {
 }
 
 function issueToken(claims, { typ, ttlSec }) {
+  const jti = claims.jti || randomId();
+  const payload = { ...claims };
+  delete payload.jti; // Remove to avoid conflict with jwtid option
+  
   const token = jwt.sign(
-    claims,
+    payload,
     config.appJwtSecret,
     {
       algorithm: 'HS256',
       expiresIn: ttlSec,
       header: { typ },
       issuer: 'louagi-server',
-      jwtid: randomId(),
+      jwtid: jti,
     }
   );
   return { token, claims: jwt.decode(token) };

@@ -1,5 +1,5 @@
-import { rateLimit } from 'express-rate-limit';
-
+import { RateLimiterRedis, RateLimiterMemory } from 'rate-limiter-flexible';
+import { getRedis, isRedisReady } from '../cache/redis.js';
 import { config } from '../config.js';
 
 const rateLimitResponse = {
@@ -7,19 +7,52 @@ const rateLimitResponse = {
   error: 'Too many requests. Try again later.',
 };
 
-export const apiRateLimit = rateLimit({
-  windowMs: config.rateLimitWindowMs,
-  limit: config.rateLimitMax,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: rateLimitResponse,
-  skip: (req) => req.path === '/health',
-});
+let limiterRedis = null;
+let limiterMemory = null;
 
-export const graphqlRateLimit = rateLimit({
-  windowMs: config.rateLimitWindowMs,
-  limit: config.graphqlRateLimitMax,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: rateLimitResponse,
-});
+function initLimiters() {
+  const points = config.graphqlRateLimitMax || 100;
+  const duration = (config.rateLimitWindowMs || 60000) / 1000;
+  
+  limiterMemory = new RateLimiterMemory({
+    keyPrefix: 'rl_mem',
+    points,
+    duration,
+  });
+
+  const redisClient = getRedis();
+  if (redisClient) {
+    limiterRedis = new RateLimiterRedis({
+      storeClient: redisClient,
+      keyPrefix: 'rl_redis',
+      points,
+      duration,
+      inmemoryBlockOnConsumed: points + 1,
+    });
+  }
+}
+
+export const graphqlRateLimit = async (req, res, next) => {
+  if (!limiterMemory) initLimiters();
+  const key = req.actor ? req.actor.id : req.ip;
+  const limiter = isRedisReady() && limiterRedis ? limiterRedis : limiterMemory;
+  try {
+    await limiter.consume(key, 1);
+    next();
+  } catch {
+    res.status(429).json(rateLimitResponse);
+  }
+};
+
+export const apiRateLimit = async (req, res, next) => {
+  if (req.path === '/health') return next();
+  if (!limiterMemory) initLimiters();
+  const key = req.ip;
+  const limiter = isRedisReady() && limiterRedis ? limiterRedis : limiterMemory;
+  try {
+    await limiter.consume(key, 1);
+    next();
+  } catch {
+    res.status(429).json(rateLimitResponse);
+  }
+};

@@ -105,3 +105,20 @@ export async function delSession(userId) {
     console.error(`[redis] delSession failed for ${userId}:`, err.message);
   }
 }
+
+export async function getCache(key) {
+  if (!isReady || !redis) return null;
+  try {
+    const data = await redis.get(key);
+    return data ? JSON.parse(data) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setCache(key, value, ttlSec = 3600) {
+  if (!isReady || !redis) return;
+  try {
+    await redis.set(key, JSON.stringify(value), 'EX', ttlSec);
+  } catch {}
+}
