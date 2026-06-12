@@ -16,6 +16,12 @@ export function cacheMiddleware() {
     const cache = metadata?.cache;
     if (!cache || !isRedisReady()) return next();
 
+    // Role-scoped caches: shared keys (e.g. admin aggregates) must never be
+    // served to an actor whose role didn't populate them — authorization lives
+    // in the handler, and a cache hit would skip it. Wrong role → run the
+    // handler, which denies.
+    if (cache.role && ctx.actor?.role !== cache.role) return next();
+
     let key;
     try {
       key = typeof cache.key === 'function' ? await cache.key(payload, ctx) : cache.key;

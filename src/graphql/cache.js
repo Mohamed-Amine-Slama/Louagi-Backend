@@ -106,8 +106,18 @@ export const cacheKey = {
   availableDeliveryRides: (origin, dest) => `deliveries:avail:${origin || '_'}:${dest || '_'}`,
 
   // Admin dashboards.
-  adminStats:    () => 'admin:stats:v1',
-  adminAlerts:   () => 'admin:alerts:v1',
+  adminStats:      () => 'admin:stats:v1',
+  adminAlerts:     () => 'admin:alerts:v1',
+  adminSeries:     (days) => `admin:series:${days}`,
+  adminPaySummary: () => 'admin:paysummary:v1',
+  adminPayouts:    (lim) => `admin:payouts:${lim}`,
+  adminRides:       (hash) => `admin:rides:${hash}`,
+  adminUsersSearch: (hash) => `admin:users:${hash}`,
+  adminAudit:       (hash) => `admin:audit:${hash}`,
+  adminAuditCount:  () => 'admin:audit:count:v1',
+
+  // Driver sessions (per-actor key).
+  driverSessions: (userId) => `driver:sessions:${userId}`,
 
   // Earnings.
   driverEarnings: (driverUserId, period) => `driver:earnings:${driverUserId}:${period}`,

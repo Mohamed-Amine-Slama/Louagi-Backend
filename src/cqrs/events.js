@@ -52,8 +52,9 @@ export const Events = {
 
   // ─── Payment ─────────────────────────────────────────────────────────────-
   payment: {
-    Refunded: 'payment.refunded',  // { paymentId, ownerId, amount, partial }
-    Flagged:  'payment.flagged',   // { paymentId, ownerId, reason }
+    Refunded:  'payment.refunded',   // { paymentId, ownerId, amount, partial }
+    Flagged:   'payment.flagged',    // { paymentId, ownerId, reason }
+    Unflagged: 'payment.unflagged',  // { paymentId }
   },
 
   // ─── Delivery ────────────────────────────────────────────────────────────-

@@ -42,16 +42,19 @@ async function CreateReservation(input, ctx) {
             `;
 
             const resId = callRes[0].reservation_id;
-            const rows = await sql`select * from public.reservations where id = ${resId}::uuid limit 1`;
-            const payRows = await sql`select * from public.payments where reservation_id = ${resId}::uuid limit 1`;
-
-            await appendAudit({
-              actor: { id: actor.id, role: actor.role },
-              action: 'reservation.confirmed',
-              targetEntity: 'reservation',
-              targetId: resId,
-              ip: ctx.ip,
-            });
+            // The two reads and the audit insert only depend on resId — run
+            // them in one parallel batch instead of three round-trips.
+            const [rows, payRows] = await Promise.all([
+              sql`select * from public.reservations where id = ${resId}::uuid limit 1`,
+              sql`select * from public.payments where reservation_id = ${resId}::uuid limit 1`,
+              appendAudit({
+                actor: { id: actor.id, role: actor.role },
+                action: 'reservation.confirmed',
+                targetEntity: 'reservation',
+                targetId: resId,
+                ip: ctx.ip,
+              }),
+            ]);
 
             return {
               ok: true,

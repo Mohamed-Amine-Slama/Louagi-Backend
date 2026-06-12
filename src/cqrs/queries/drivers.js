@@ -6,6 +6,7 @@ import {
   driverFullFrom,
   toNumber,
 } from '../../graphql/helpers.js';
+import { decryptField } from '../../lib/fieldCrypto.js';
 import { cacheKey } from '../../graphql/cache.js';
 
 async function GetDriverStatus(_input, ctx) {
@@ -49,7 +50,7 @@ async function GetDriverProfile(_input, ctx) {
     plate_number_masked: d.plate_number,
     license_expires_at: d.license_expires_at,
     id_expires_at: d.id_expires_at,
-    payout_account: d.payout_account ?? '',
+    payout_account: decryptField(d.payout_account) ?? '',
   };
 }
 
@@ -120,4 +121,7 @@ export const meta = {
   GetDriverStatus:  { cache: { key: (_, ctx) => cacheKey.driverStatus(ctx.actor.id),  ttl: 30 } },
   GetDriverProfile: { cache: { key: (_, ctx) => cacheKey.driverProfile(ctx.actor.id), ttl: 60 } },
   Get2FAStatus:     { cache: { key: (_, ctx) => cacheKey.twoFAStatus(ctx.actor.id),   ttl: 60 } },
+  ListDriverSessions: {
+    cache: { key: (_, ctx) => cacheKey.driverSessions(ctx.actor.id), ttl: 30 },
+  },
 };

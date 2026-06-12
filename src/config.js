@@ -37,4 +37,32 @@ export const config = {
   rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
   rateLimitMax: Number(process.env.RATE_LIMIT_MAX || 600),
   graphqlRateLimitMax: Number(process.env.GRAPHQL_RATE_LIMIT_MAX || 120),
+
+  // PII at rest: 32-byte key (64 hex chars or base64) for AES-256-GCM field
+  // encryption. Absent → fields are stored plaintext (dev convenience); see
+  // src/lib/fieldCrypto.js and scripts/encrypt-pii.js.
+  piiEncryptionKey: process.env.PII_ENCRYPTION_KEY || '',
+
+  // OTP delivery. 'twilio' needs the three TWILIO_* vars; 'log' prints codes
+  // to stdout (dev only); unset → codes are generated but not delivered.
+  smsProvider: process.env.SMS_PROVIDER || '',
+  twilio: {
+    accountSid: process.env.TWILIO_ACCOUNT_SID || '',
+    authToken: process.env.TWILIO_AUTH_TOKEN || '',
+    from: process.env.TWILIO_FROM || '',
+  },
 };
+
+// Loud production misconfiguration warnings — none of these are fatal, but
+// each one weakens a control the codebase otherwise provides.
+if (env === 'production') {
+  if (!config.smsProvider || config.smsProvider === 'log') {
+    console.warn('[config] SMS_PROVIDER is not set — login OTPs cannot reach users');
+  }
+  if (!config.piiEncryptionKey) {
+    console.warn('[config] PII_ENCRYPTION_KEY is not set — driver ID/license/payout fields stored in plaintext');
+  }
+  if (config.corsOrigins.includes('*')) {
+    console.warn('[config] CORS_ORIGINS is "*" — lock this down to the app origins');
+  }
+}

@@ -8,6 +8,7 @@ import {
   validatePlate,
   validateSeatCount,
 } from '../../utils/validation.js';
+import { encryptField } from '../../lib/fieldCrypto.js';
 import { appendAudit, assertCan } from '../../graphql/helpers.js';
 import { eventBus } from '../event-bus.js';
 import { Events } from '../events.js';
@@ -53,8 +54,8 @@ async function RegisterDriverApplication(
     ) values (
       ${actor.id}::uuid,
       ${plate},
-      ${idCardNumber},
-      ${licenseNumber},
+      ${encryptField(idCardNumber)},
+      ${encryptField(licenseNumber)},
       ${sanitize(brand)},
       ${sanitize(model)},
       ${Number(seatCount)},
@@ -132,7 +133,7 @@ async function UpdateDriverPayout({ account }, ctx) {
   if (!account || account.length < 8) return { ok: false, error: 'Account too short' };
   const rows = await sql`
     update public.drivers
-    set payout_account = ${sanitize(account)}
+    set payout_account = ${encryptField(sanitize(account))}
     where user_id = ${actor.id}::uuid
     returning id
   `;

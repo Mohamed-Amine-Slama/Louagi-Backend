@@ -312,4 +312,5 @@ export const meta = {
   DriverRides:     {              cache: { key: ({ status }, ctx) => cacheKey.driverRides(ctx.actor.id, status), ttl: 30 } },
   RidePassengers:  {              cache: { key: ({ rideId }) => cacheKey.ridePassengers(rideId),   ttl: 30 } },
   DriverEarnings:  {              cache: { key: ({ period }, ctx) => cacheKey.driverEarnings(ctx.actor.id, period || 'week'), ttl: 300 } },
+  AdminListRides:  {              cache: { key: ({ filters } = {}) => cacheKey.adminRides(hashInput(filters || {})), ttl: 30, role: 'admin' } },
 };

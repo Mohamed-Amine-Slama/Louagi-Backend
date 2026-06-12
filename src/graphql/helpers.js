@@ -8,6 +8,7 @@ import { actorFromRequest } from '../middleware/auth.js';
 import { config } from '../config.js';
 import { can } from '../utils/rbac.js';
 import { withTimeout } from '../lib/supabase/withTimeout.js';
+import { decryptField } from '../lib/fieldCrypto.js';
 
 // ─── Errors ────────────────────────────────────────────────────────────────-
 export class HttpError extends Error {
@@ -121,8 +122,9 @@ export function driverFullFrom(row) {
     ...row,
     rating: toNumber(row.rating),
     plate_number: row.plate_number,
-    id_card_number: row.id_card_number,
-    license_number: row.license_number,
+    id_card_number: decryptField(row.id_card_number),
+    license_number: decryptField(row.license_number),
+    payout_account: decryptField(row.payout_account),
   };
 }
 

@@ -34,6 +34,9 @@ function register() {
     await Promise.all([
       invalidate(cacheKey.profile(userId)),
       clearActorCache(userId),
+      // Admin user search embeds is_active; the admin expects the toggle to
+      // show immediately after acting.
+      invalidatePattern('admin:users:*'),
     ]);
   });
 
@@ -41,6 +44,7 @@ function register() {
     await Promise.all([
       invalidate(cacheKey.profile(userId)),
       clearActorCache(userId),
+      invalidatePattern('admin:users:*'),
     ]);
   });
 
@@ -71,6 +75,8 @@ function register() {
       invalidate(cacheKey.driverProfile(userId), cacheKey.driverStatus(userId)),
       invalidate(cacheKey.adminAlerts()),
       clearActorCache(userId),
+      // Admin user search embeds driver status.
+      invalidatePattern('admin:users:*'),
     ]);
   });
 
@@ -79,6 +85,7 @@ function register() {
       invalidate(cacheKey.driverProfile(userId), cacheKey.driverStatus(userId)),
       invalidate(cacheKey.adminAlerts()),
       clearActorCache(userId),
+      invalidatePattern('admin:users:*'),
     ]);
   });
 
@@ -103,7 +110,10 @@ function register() {
   });
 
   eventBus.on(Events.driver.SessionRevoked, async ({ userId }) => {
-    await clearActorCache(userId);
+    await Promise.all([
+      clearActorCache(userId),
+      invalidate(cacheKey.driverSessions(userId)),
+    ]);
   });
 
   // ─── Ride ──────────────────────────────────────────────────────────────────
@@ -112,6 +122,7 @@ function register() {
       invalidatePattern(cacheKey.driverRidesAll(driverUserId)),
       invalidatePattern('search:rides:*'),
       invalidatePattern('deliveries:avail:*'),
+      invalidatePattern('admin:rides:*'),
     ]);
   });
 
@@ -120,6 +131,7 @@ function register() {
       invalidate(cacheKey.rideDetail(rideId)),
       invalidatePattern(cacheKey.driverRidesAll(driverUserId)),
       invalidatePattern('search:rides:*'),
+      invalidatePattern('admin:rides:*'),
     ]);
   });
 
@@ -128,6 +140,7 @@ function register() {
       invalidate(cacheKey.rideDetail(rideId), cacheKey.ridePassengers(rideId)),
       invalidatePattern(cacheKey.driverRidesAll(driverUserId)),
       invalidatePattern('search:rides:*'),
+      invalidatePattern('admin:rides:*'),
     ];
     for (const userId of new Set(affectedUserIds)) {
       tasks.push(invalidatePattern(cacheKey.listReservationsAll(userId)));
@@ -160,7 +173,10 @@ function register() {
   eventBus.on(Events.payment.Refunded, async ({ ownerId }) => {
     const tasks = [
       invalidatePattern('pay:list:admin:*'),
-      invalidate(cacheKey.adminStats(), cacheKey.adminAlerts()),
+      invalidate(cacheKey.adminStats(), cacheKey.adminAlerts(), cacheKey.adminPaySummary()),
+      // Refunds move payments out of 'succeeded', which feeds both aggregates.
+      invalidatePattern('admin:payouts:*'),
+      invalidatePattern('admin:series:*'),
     ];
     if (ownerId) tasks.push(invalidatePattern(cacheKey.listPaymentsAll(ownerId)));
     await Promise.all(tasks);
@@ -169,7 +185,14 @@ function register() {
   eventBus.on(Events.payment.Flagged, async () => {
     await Promise.all([
       invalidatePattern('pay:list:admin:*'),
-      invalidate(cacheKey.adminStats(), cacheKey.adminAlerts()),
+      invalidate(cacheKey.adminStats(), cacheKey.adminAlerts(), cacheKey.adminPaySummary()),
+    ]);
+  });
+
+  eventBus.on(Events.payment.Unflagged, async () => {
+    await Promise.all([
+      invalidatePattern('pay:list:admin:*'),
+      invalidate(cacheKey.adminStats(), cacheKey.adminAlerts(), cacheKey.adminPaySummary()),
     ]);
   });
 

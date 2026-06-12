@@ -3,7 +3,6 @@
 // mobile client sees no behavioral change.
 
 import { sql } from '../../db.js';
-import { config } from '../../config.js';
 import {
   delSession,
   getSession,
@@ -28,14 +27,23 @@ import {
 } from '../../utils/validation.js';
 import { appendAudit, loadUserSession } from '../../graphql/helpers.js';
 import { actorFromRequest } from '../../middleware/auth.js';
+import { authAttemptsExceeded, recordAuthFailure } from '../../middleware/rateLimit.js';
+import { consumeOtp, issueOtp } from '../../auth/otp.js';
 import { eventBus } from '../event-bus.js';
 import { Events } from '../events.js';
+
+const TOO_MANY_ATTEMPTS = { ok: false, error: 'Too many attempts. Try again later.' };
 
 async function StartLogin({ phone, password }, ctx) {
   const phoneErr = validateTunisianPhone(phone);
   if (phoneErr) return { ok: false, error: phoneErr };
 
   const normalizedPhone = normalizeTunisianPhone(phone);
+  // Per-phone brute-force guard: failed attempts are counted below; once the
+  // window is exhausted, reject before touching credentials at all.
+  const attemptKey = `login:${normalizedPhone}`;
+  if (await authAttemptsExceeded(attemptKey)) return TOO_MANY_ATTEMPTS;
+
   const rows = await sql`
     select
       u.id,
@@ -49,32 +57,40 @@ async function StartLogin({ phone, password }, ctx) {
   `;
   const user = rows[0];
   if (!user?.is_active || !user.password_ok) {
+    await recordAuthFailure(attemptKey);
     return { ok: false, error: 'Phone or password is incorrect' };
   }
 
-  await appendAudit({
-    actor: { id: user.id, role: user.role },
-    action: 'login.credentials_ok',
-    targetEntity: 'user',
-    targetId: user.id,
-    ip: ctx.ip,
-  });
+  const [issued] = await Promise.all([
+    issueOtp(user.id, 'login', { phone: normalizedPhone }),
+    appendAudit({
+      actor: { id: user.id, role: user.role },
+      action: 'login.credentials_ok',
+      targetEntity: 'user',
+      targetId: user.id,
+      ip: ctx.ip,
+    }),
+  ]);
 
   return {
     ok: true,
     next: 'otp',
     userId: user.id,
-    devOtp: config.env === 'production' ? null : config.devOtpCode,
+    devOtp: issued.devOtp,
   };
 }
 
 async function VerifyOtp({ userId, purpose, otp }, ctx) {
   const otpErr = validateOtp(otp);
   if (otpErr) return { ok: false, error: otpErr };
-  if (otp !== config.devOtpCode) return { ok: false, error: 'OTP failed' };
+
+  // The OTP is per-user, purpose-bound, single-use, and attempt-limited —
+  // the store enforces all four. No static comparison.
+  const verdict = await consumeOtp(userId, purpose === 'register' ? 'register' : 'login', otp);
+  if (!verdict.ok) return verdict;
 
   const session = await loadUserSession(userId, { ctx });
-  if (!session) return { ok: false, error: 'User not found' };
+  if (!session) return { ok: false, error: 'OTP failed' };
 
   await appendAudit({
     actor: { id: session.user.id, role: session.user.role },
@@ -139,19 +155,22 @@ async function Register({ fullName, phone, email, password, role }, ctx) {
     returning id, role
   `;
   const user = rows[0];
-  await appendAudit({
-    actor: { id: user.id, role: user.role },
-    action: 'register.created',
-    targetEntity: 'user',
-    targetId: user.id,
-    ip: ctx.ip,
-  });
+  const [issued] = await Promise.all([
+    issueOtp(user.id, 'register', { phone: normalizedPhone }),
+    appendAudit({
+      actor: { id: user.id, role: user.role },
+      action: 'register.created',
+      targetEntity: 'user',
+      targetId: user.id,
+      ip: ctx.ip,
+    }),
+  ]);
   eventBus.emit(Events.user.Registered, { userId: user.id, role: user.role }, ctx);
 
   return {
     ok: true,
     userId: user.id,
-    devOtp: config.env === 'production' ? null : config.devOtpCode,
+    devOtp: issued.devOtp,
   };
 }
 
@@ -258,14 +277,20 @@ async function BiometricLogin({ ticket }, ctx) {
 async function RequestPasswordChangeOtp({ userId }, ctx) {
   const actor = ctx.actor;
   if (actor.id !== userId) return { ok: false, error: 'Forbidden' };
-  await appendAudit({
-    actor,
-    action: 'password.otp_requested',
-    targetEntity: 'user',
-    targetId: userId,
-    ip: ctx.ip,
-  });
-  return { ok: true, devOtp: config.env === 'production' ? null : config.devOtpCode };
+  const phoneRows = await sql`
+    select phone_number from public.users where id = ${userId}::uuid limit 1
+  `;
+  const [issued] = await Promise.all([
+    issueOtp(userId, 'password', { phone: phoneRows[0]?.phone_number }),
+    appendAudit({
+      actor,
+      action: 'password.otp_requested',
+      targetEntity: 'user',
+      targetId: userId,
+      ip: ctx.ip,
+    }),
+  ]);
+  return { ok: true, devOtp: issued.devOtp };
 }
 
 async function VerifyPasswordChangeOtp({ userId, otp }, ctx) {
@@ -273,8 +298,7 @@ async function VerifyPasswordChangeOtp({ userId, otp }, ctx) {
   if (actor.id !== userId) return { ok: false, error: 'Forbidden' };
   const otpErr = validateOtp(otp);
   if (otpErr) return { ok: false, error: otpErr };
-  if (otp !== config.devOtpCode) return { ok: false, error: 'OTP failed' };
-  return { ok: true };
+  return consumeOtp(userId, 'password', otp);
 }
 
 export const commands = {
