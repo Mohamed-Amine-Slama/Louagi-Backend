@@ -17,10 +17,12 @@ async function GetProfile(_input, ctx) {
     `,
     sql`
       select
-        coalesce(count(*) filter (where status = 'confirmed'), 0)::int as trips,
-        coalesce(sum(total_price) filter (where status <> 'cancelled'), 0) as spent
-      from public.reservations
-      where user_id = ${actor.id}::uuid
+        coalesce(count(*) filter (where res.status = 'confirmed'), 0)::int as trips,
+        coalesce(sum(res.total_price) filter (where res.status <> 'cancelled'), 0) as spent,
+        coalesce(count(distinct r.route_id) filter (where res.status <> 'cancelled'), 0)::int as distinct_routes
+      from public.reservations res
+      left join public.rides r on r.id = res.ride_id
+      where res.user_id = ${actor.id}::uuid
     `,
     sql`
       select rt.origin_city, rt.destination_city
@@ -37,6 +39,14 @@ async function GetProfile(_input, ctx) {
   const user = userRows[0];
   if (!user) return null;
   const fav = favRows[0];
+
+  const trips = statsRows[0]?.trips ?? 0;
+  const spent = toNumber(statsRows[0]?.spent) ?? 0;
+  const distinctRoutes = statsRows[0]?.distinct_routes ?? 0;
+
+  // Louagi loyalty points: 100 per confirmed trip + 1 per TND spent.
+  const points = trips * 100 + Math.round(spent);
+
   return {
     id: user.id,
     full_name: user.full_name,
@@ -49,11 +59,25 @@ async function GetProfile(_input, ctx) {
     // Client expects the legacy key `payment_method` for the account info.
     payment_method: user.payment_account ?? null,
     stats: {
-      trips: statsRows[0]?.trips ?? 0,
-      spent: toNumber(statsRows[0]?.spent) ?? 0,
+      trips,
+      spent,
       favouriteRoute: fav ? `${fav.origin_city} → ${fav.destination_city}` : null,
+      points,
+      achievements: passengerAchievements({ trips, distinctRoutes }),
     },
   };
+}
+
+// Achievements unlocked by real passenger activity. Ids are stable; the client
+// owns the labels/icons (see src/components/Membership.js).
+function passengerAchievements({ trips, distinctRoutes }) {
+  const out = [];
+  if (trips >= 1) out.push('firstTrip');       // First trip
+  if (trips >= 5) out.push('ecoRider');         // 5 shared rides
+  if (distinctRoutes >= 3) out.push('explorer'); // 3 different routes
+  if (trips >= 10) out.push('tenTrips');        // 10 trips
+  if (trips >= 50) out.push('veteran');         // 50 trips
+  return out;
 }
 
 // Renamed from the legacy ExportMyData/REST `/my-data` op to match the client's
