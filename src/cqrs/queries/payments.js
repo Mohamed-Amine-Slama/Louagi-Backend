@@ -25,8 +25,9 @@ async function ListPayments({ limit, offset } = {}, ctx) {
                  p.driver_fee, p.reservation_fee, p.refunded_amount, p.refund_type,
                  p.paid_at, p.refunded_at
           from public.payments p
-          join public.reservations r on r.id = p.reservation_id
-          where r.user_id = ${actor.id}::uuid
+          left join public.reservations r on r.id = p.reservation_id
+          left join public.delivery del on del.id = p.delivery_id
+          where r.user_id = ${actor.id}::uuid or del.user_id = ${actor.id}::uuid
           order by p.paid_at desc
           limit ${lim} offset ${off}
         `;

@@ -267,6 +267,49 @@ async function RequestDataDeletion({ reason }, ctx) {
   return { ok: true, message: 'Deletion request submitted. Our team will process it within 30 days.' };
 }
 
+// Live GPS push from a driver's app while they share their location. Called
+// often (~every 5s), so it keeps NO history (upsert in place) and writes no
+// audit row. driver_id is derived from the token — never trust client input —
+// and only a verified driver may write. Read-side visibility is gated entirely
+// by GetDeliveryTracking.
+async function UpdateDriverLocation({ latitude, longitude, heading, speed, accuracy }, ctx) {
+  const actor = ctx.actor;
+  const denied = assertCan(actor, 'location:update');
+  if (denied) return denied;
+
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90) return { ok: false, error: 'Invalid latitude' };
+  if (!Number.isFinite(lng) || lng < -180 || lng > 180) return { ok: false, error: 'Invalid longitude' };
+
+  const headNum = Number(heading);
+  const head = Number.isFinite(headNum) ? ((headNum % 360) + 360) % 360 : null;
+  const spdNum = Number(speed);
+  const spd = Number.isFinite(spdNum) && spdNum >= 0 ? spdNum : null;
+  const accNum = Number(accuracy);
+  const acc = Number.isFinite(accNum) && accNum >= 0 ? accNum : null;
+
+  const drivers = await sql`
+    select id, status from public.drivers where user_id = ${actor.id}::uuid limit 1
+  `;
+  const driver = drivers[0];
+  if (!driver) return { ok: false, error: 'No driver record' };
+  if (driver.status !== 'verified') return { ok: false, error: 'Driver not verified' };
+
+  await sql`
+    insert into public.driver_locations (driver_id, latitude, longitude, heading, speed, accuracy)
+    values (${driver.id}::uuid, ${lat}, ${lng}, ${head}, ${spd}, ${acc})
+    on conflict (driver_id) do update set
+      latitude = excluded.latitude,
+      longitude = excluded.longitude,
+      heading = excluded.heading,
+      speed = excluded.speed,
+      accuracy = excluded.accuracy,
+      updated_at = now()
+  `;
+  return { ok: true };
+}
+
 export const commands = {
   RegisterDriverApplication,
   UpdateDriverVehicle,
@@ -278,5 +321,6 @@ export const commands = {
   AcceptTerms,
   AcceptPrivacy,
   RequestDataDeletion,
+  UpdateDriverLocation,
 };
 export const meta = {};

@@ -14,19 +14,20 @@ import {
 } from '../../graphql/helpers.js';
 import { eventBus } from '../event-bus.js';
 import { Events } from '../events.js';
+import { loadDeliveryPricing } from '../queries/deliveries.js';
 
-async function CreateDelivery({ rideId, severityTier, description }, ctx) {
-  const TIER_PRICES = { 1: 7, 2: 9, 3: 12 };
-  const TIER_LABELS = { 1: 'Standard', 2: 'Sensitive', 3: 'Critical' };
+async function CreateDelivery({ rideId, description }, ctx) {
+  // Delivery is a flat-rate add-on: fixed price, no severity tier selection.
+  // The legacy severity_tier/severity_label columns are kept NOT NULL in the
+  // schema, so we persist the Standard tier (1) to satisfy the constraint.
+  // Pricing lives in public.app_config (seeded), not hard-coded here.
+  const { price, driver_fee: driverFee, platform_fee: platformFee } = await loadDeliveryPricing();
+  const tier = 1;
+  const label = 'Standard';
 
   const actor = ctx.actor;
   const denied = assertCan(actor, 'rides:book');
   if (denied) return denied;
-
-  const tier = Number(severityTier);
-  if (![1, 2, 3].includes(tier)) return { ok: false, error: 'Invalid severity tier' };
-  const price = TIER_PRICES[tier];
-  const label = TIER_LABELS[tier];
 
   const result = await dbBreaker.call(() =>
     withRetry(() =>
@@ -75,8 +76,8 @@ async function CreateDelivery({ rideId, severityTier, description }, ctx) {
                 ${deliveries[0].id}::uuid,
                 'card'::payment_method,
                 ${price},
-                ${0},
-                ${0},
+                ${platformFee},
+                ${driverFee},
                 'succeeded',
                 ${paymentReference('DEL')}
               )

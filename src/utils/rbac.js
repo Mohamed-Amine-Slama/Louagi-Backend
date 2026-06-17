@@ -2,6 +2,7 @@ const matrix = {
   'rides:book': ['passenger'],
   'rides:create': ['driver'],
   'rides:manage': ['driver', 'admin'],
+  'location:update': ['driver'],
   'admin:read': ['admin'],
   'admin:verify-driver': ['admin'],
   'admin:suspend-user': ['admin'],

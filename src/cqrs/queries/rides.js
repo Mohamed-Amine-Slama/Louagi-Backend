@@ -23,6 +23,16 @@ async function ListRoutes() {
   return rows.map((row) => ({ ...row, base_price: toNumber(row.base_price) }));
 }
 
+async function ListPopularRoutes() {
+  const rows = await sql`
+    select id, origin_city, destination_city, distance_km, estimated_duration_min, base_price
+    from public.routes
+    where is_popular = true
+    order by origin_city, destination_city
+  `;
+  return rows.map((row) => ({ ...row, base_price: toNumber(row.base_price) }));
+}
+
 async function ListCities() {
   const rows = await sql`
     select city
@@ -295,6 +305,7 @@ async function AdminListRides({ filters = {} }, ctx) {
 
 export const queries = {
   ListRoutes,
+  ListPopularRoutes,
   ListCities,
   SearchRides,
   GetRideDetail,
@@ -305,8 +316,9 @@ export const queries = {
 };
 
 export const meta = {
-  ListRoutes:      { public: true, cache: { key: () => cacheKey.routes(),  ttl: 3600 * 24 } },
-  ListCities:      { public: true, cache: { key: () => cacheKey.cities(),  ttl: 3600 * 24 } },
+  ListRoutes:        { public: true, cache: { key: () => cacheKey.routes(),        ttl: 3600 * 24 } },
+  ListPopularRoutes: { public: true, cache: { key: () => cacheKey.popularRoutes(), ttl: 3600 * 24 } },
+  ListCities:        { public: true, cache: { key: () => cacheKey.cities(),        ttl: 3600 * 24 } },
   SearchRides:     { public: true, cache: { key: (input) => cacheKey.searchRides(hashInput(input)), ttl: 30 } },
   GetRideDetail:   {              cache: { key: ({ rideId }) => cacheKey.rideDetail(rideId),       ttl: 60 } },
   DriverRides:     {              cache: { key: ({ status }, ctx) => cacheKey.driverRides(ctx.actor.id, status), ttl: 30 } },

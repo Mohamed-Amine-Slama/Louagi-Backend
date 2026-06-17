@@ -78,7 +78,11 @@ export async function invalidatePattern(pattern) {
 export const cacheKey = {
   // Reference data — long-lived, low volatility.
   routes:        () => 'ref:routes:v1',
+  popularRoutes: () => 'ref:routes:popular:v1',
   cities:        () => 'ref:cities:v1',
+  deliveryPricing: () => 'ref:config:delivery_pricing:v1',
+  achievements:  () => 'ref:achievements:v1',
+  tiers:         () => 'ref:tiers:v1',
 
   // Per-user — invalidate on UpdateProfile / AdminSetUserActive.
   profile:       (userId) => `profile:${userId}`,

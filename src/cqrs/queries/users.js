@@ -4,6 +4,7 @@
 import { sql } from '../../db.js';
 import { toNumber, appendAudit } from '../../graphql/helpers.js';
 import { cacheKey } from '../../graphql/cache.js';
+import { loyaltyPoints } from '../../lib/tiers.js';
 
 async function GetProfile(_input, ctx) {
   const actor = ctx.actor;
@@ -45,7 +46,17 @@ async function GetProfile(_input, ctx) {
   const distinctRoutes = statsRows[0]?.distinct_routes ?? 0;
 
   // Louagi loyalty points: 100 per confirmed trip + 1 per TND spent.
-  const points = trips * 100 + Math.round(spent);
+  const points = loyaltyPoints({ trips, spent });
+
+  // Seat-fare discount the current tier grants — read from the public.tiers
+  // catalogue (same ladder public.create_reservation prices against).
+  const tierRows = await sql`
+    select discount_pct from public.tiers
+    where min_points <= ${points}
+    order by min_points desc
+    limit 1
+  `;
+  const discountPct = toNumber(tierRows[0]?.discount_pct) ?? 0;
 
   return {
     id: user.id,
@@ -63,21 +74,52 @@ async function GetProfile(_input, ctx) {
       spent,
       favouriteRoute: fav ? `${fav.origin_city} → ${fav.destination_city}` : null,
       points,
-      achievements: passengerAchievements({ trips, distinctRoutes }),
+      // Seat-fare discount the passenger's current tier grants (whole percent).
+      discountPct,
+      achievements: await passengerAchievements({ trips, distinctRoutes }),
     },
   };
 }
 
-// Achievements unlocked by real passenger activity. Ids are stable; the client
-// owns the labels/icons (see src/components/Membership.js).
-function passengerAchievements({ trips, distinctRoutes }) {
-  const out = [];
-  if (trips >= 1) out.push('firstTrip');       // First trip
-  if (trips >= 5) out.push('ecoRider');         // 5 shared rides
-  if (distinctRoutes >= 3) out.push('explorer'); // 3 different routes
-  if (trips >= 10) out.push('tenTrips');        // 10 trips
-  if (trips >= 50) out.push('veteran');         // 50 trips
-  return out;
+// The achievement catalogue — id, label key, icon and unlock threshold. Seeded
+// into public.achievements (was a hard-coded array in src/components/Membership.js).
+async function ListAchievements() {
+  const rows = await sql`
+    select id, i18n_key, icon, threshold_type, threshold, sort_order
+    from public.achievements
+    order by sort_order
+  `;
+  return rows;
+}
+
+// The loyalty tier ladder — code, label key, threshold, discount and perks.
+// Seeded into public.tiers; the same rows price bookings (create_reservation).
+async function ListTiers() {
+  const rows = await sql`
+    select id, i18n_key, min_points, discount_pct, perks, sort_order
+    from public.tiers
+    order by sort_order
+  `;
+  return rows.map((r) => ({
+    id: r.id,
+    i18n_key: r.i18n_key,
+    min_points: r.min_points,
+    discount_pct: toNumber(r.discount_pct) ?? 0,
+    perks: r.perks ?? [],
+    sort_order: r.sort_order,
+  }));
+}
+
+// Achievements unlocked by real passenger activity. The thresholds live in the
+// public.achievements catalogue so the rule and the badge stay in one place.
+async function passengerAchievements({ trips, distinctRoutes }) {
+  const rows = await sql`
+    select id, threshold_type, threshold from public.achievements order by sort_order
+  `;
+  const metrics = { trips, distinct_routes: distinctRoutes };
+  return rows
+    .filter((r) => (metrics[r.threshold_type] ?? 0) >= r.threshold)
+    .map((r) => r.id);
 }
 
 // Renamed from the legacy ExportMyData/REST `/my-data` op to match the client's
@@ -128,8 +170,10 @@ async function RequestDataExport(_input, ctx) {
   };
 }
 
-export const queries = { GetProfile, RequestDataExport };
+export const queries = { GetProfile, RequestDataExport, ListAchievements, ListTiers };
 
 export const meta = {
   GetProfile: { cache: { key: (_, ctx) => cacheKey.profile(ctx.actor.id), ttl: 60 } },
+  ListAchievements: { public: true, cache: { key: () => cacheKey.achievements(), ttl: 3600 * 24 } },
+  ListTiers: { public: true, cache: { key: () => cacheKey.tiers(), ttl: 3600 * 24 } },
 };

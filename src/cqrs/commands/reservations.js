@@ -31,6 +31,9 @@ async function CreateReservation(input, ctx) {
       safeQuery(
         async () => {
           try {
+            // The loyalty tier discount is resolved inside the RPC: it reads the
+            // passenger's points and the public.tiers ladder, then prices the
+            // seat fare. The applied percentage comes back on the row below.
             const callRes = await sql`
               select public.create_reservation(
                 ${actor.id}::uuid,
@@ -58,8 +61,13 @@ async function CreateReservation(input, ctx) {
 
             return {
               ok: true,
-              reservation: { ...rows[0], total_price: toNumber(rows[0].total_price) },
+              reservation: {
+                ...rows[0],
+                total_price: toNumber(rows[0].total_price),
+                discount_pct: toNumber(rows[0].discount_pct) ?? 0,
+              },
               payment: paymentFrom(payRows[0]),
+              discountPct: toNumber(rows[0].discount_pct) ?? 0,
               reservationId: resId,
             };
           } catch (err) {
