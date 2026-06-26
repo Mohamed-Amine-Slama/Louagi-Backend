@@ -8,6 +8,7 @@ const matrix = {
   'admin:suspend-user': ['admin'],
   'admin:refund': ['admin'],
   'admin:impersonate': ['admin'],
+  'admin:send-notification': ['admin'],
   'profile:self': ['passenger', 'driver', 'admin'],
 };
 

@@ -52,6 +52,7 @@ import { commands as adminCmds,        meta as adminCmdMeta }        from './com
 import { commands as messageCmds,      meta as messageCmdMeta }      from './commands/messages.js';
 import { commands as deliveryCmds,     meta as deliveryCmdMeta }     from './commands/deliveries.js';
 import { commands as reviewCmds,       meta as reviewCmdMeta }       from './commands/reviews.js';
+import { commands as notifCmds,        meta as notifCmdMeta }        from './commands/notifications.js';
 
 import { queries as authQs,         meta as authQMeta }         from './queries/auth.js';
 import { queries as rideQs,         meta as rideQMeta }         from './queries/rides.js';
@@ -60,9 +61,11 @@ import { queries as paymentQs,      meta as paymentQMeta }      from './queries/
 import { queries as driverQs,       meta as driverQMeta }       from './queries/drivers.js';
 import { queries as userQs,         meta as userQMeta }         from './queries/users.js';
 import { queries as adminQs,        meta as adminQMeta }        from './queries/admin.js';
+import { queries as adminMonQs,     meta as adminMonQMeta }     from './queries/admin-monitoring.js';
 import { queries as messageQs,      meta as messageQMeta }      from './queries/messages.js';
 import { queries as deliveryQs,     meta as deliveryQMeta }     from './queries/deliveries.js';
 import { queries as reviewQs,       meta as reviewQMeta }       from './queries/reviews.js';
+import { queries as notifQs,        meta as notifQMeta }        from './queries/notifications.js';
 import { queries as infraQs,        meta as infraQMeta }        from './queries/infra.js';
 
 import { cacheInvalidationProjection } from './projections/cache-invalidation.js';
@@ -98,6 +101,7 @@ registerDomain(commandBus, adminCmds,       adminCmdMeta);
 registerDomain(commandBus, messageCmds,     messageCmdMeta);
 registerDomain(commandBus, deliveryCmds,    deliveryCmdMeta);
 registerDomain(commandBus, reviewCmds,      reviewCmdMeta);
+registerDomain(commandBus, notifCmds,       notifCmdMeta);
 
 registerDomain(queryBus, authQs,        authQMeta);
 registerDomain(queryBus, rideQs,        rideQMeta);
@@ -106,9 +110,11 @@ registerDomain(queryBus, paymentQs,     paymentQMeta);
 registerDomain(queryBus, driverQs,      driverQMeta);
 registerDomain(queryBus, userQs,        userQMeta);
 registerDomain(queryBus, adminQs,       adminQMeta);
+registerDomain(queryBus, adminMonQs,    adminMonQMeta);
 registerDomain(queryBus, messageQs,     messageQMeta);
 registerDomain(queryBus, deliveryQs,    deliveryQMeta);
 registerDomain(queryBus, reviewQs,      reviewQMeta);
+registerDomain(queryBus, notifQs,       notifQMeta);
 registerDomain(queryBus, infraQs,       infraQMeta);
 
 // ─── Projections ────────────────────────────────────────────────────────────

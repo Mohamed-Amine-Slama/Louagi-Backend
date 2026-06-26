@@ -28,7 +28,15 @@ import {
 import { appendAudit, loadUserSession } from '../../graphql/helpers.js';
 import { actorFromRequest } from '../../middleware/auth.js';
 import { authAttemptsExceeded, recordAuthFailure } from '../../middleware/rateLimit.js';
-import { consumeOtp, issueOtp } from '../../auth/otp.js';
+import {
+  consumeOtp,
+  issueOtp,
+  canIssueResetToken,
+  issueResetToken,
+  consumeResetToken,
+} from '../../auth/otp.js';
+import { sendEmail, passwordResetEmail } from '../../lib/email.js';
+import { config } from '../../config.js';
 import { eventBus } from '../event-bus.js';
 import { Events } from '../events.js';
 
@@ -57,7 +65,20 @@ async function StartLogin({ phone, password }, ctx) {
   `;
   const user = rows[0];
   if (!user?.is_active || !user.password_ok) {
-    await recordAuthFailure(attemptKey);
+    const reason = !user ? 'no_account' : !user.is_active ? 'inactive' : 'bad_password';
+    await Promise.all([
+      recordAuthFailure(attemptKey),
+      // Audited so the admin control center can surface failed-login volume,
+      // lockouts, and brute-force patterns. Never store the password.
+      appendAudit({
+        actor: user ? { id: user.id, role: user.role } : null,
+        action: 'login.failed',
+        targetEntity: 'user',
+        targetId: user?.id ?? null,
+        metadata: { phone: normalizedPhone, reason },
+        ip: ctx.ip,
+      }),
+    ]);
     return { ok: false, error: 'Phone or password is incorrect' };
   }
 
@@ -270,23 +291,31 @@ async function BiometricLogin({ ticket }, ctx) {
   return { ok: true, ...session, ticket: nextTicket };
 }
 
-// ─── Password-change OTP flow ──────────────────────────────────────────────
-// Used by Profile → "Change password" — confirms the user is still the owner
-// of the phone number on file before letting them set a new password.
+// ─── Password-change flow (knows current password) ─────────────────────────
+// Profile → "Change password". The user proves they know the current password
+// FIRST; only then do we email a 6-digit code to the address on file. Gating
+// the code behind the password check means we never mail a code to someone who
+// can't already authenticate.
 
-async function RequestPasswordChangeOtp({ userId }, ctx) {
+async function StartPasswordChange({ currentPassword }, ctx) {
   const actor = ctx.actor;
-  if (actor.id !== userId) return { ok: false, error: 'Forbidden' };
-  const phoneRows = await sql`
-    select phone_number from public.users where id = ${userId}::uuid limit 1
+  const rows = await sql`
+    select email,
+           password_hash = extensions.crypt(${currentPassword || ''}, password_hash) as password_ok
+    from public.users
+    where id = ${actor.id}::uuid
+    limit 1
   `;
+  if (!rows[0]?.password_ok) {
+    return { ok: false, errors: { currentPassword: 'Current password incorrect' } };
+  }
   const [issued] = await Promise.all([
-    issueOtp(userId, 'password', { phone: phoneRows[0]?.phone_number }),
+    issueOtp(actor.id, 'password', { email: rows[0].email }),
     appendAudit({
       actor,
       action: 'password.otp_requested',
       targetEntity: 'user',
-      targetId: userId,
+      targetId: actor.id,
       ip: ctx.ip,
     }),
   ]);
@@ -301,6 +330,64 @@ async function VerifyPasswordChangeOtp({ userId, otp }, ctx) {
   return consumeOtp(userId, 'password', otp);
 }
 
+// ─── Password-reset flow (forgot / wrong current password) ──────────────────
+// Unauthenticated. The user enters an email; if it resolves to an account we
+// email a single-use deep link. The response is identical whether or not the
+// email exists, so it never confirms an account (no user enumeration).
+
+async function RequestPasswordReset({ email }, ctx) {
+  const generic = { ok: true };
+  const emailErr = validateEmail(email);
+  if (emailErr) return generic;
+
+  const rows = await sql`
+    select id from public.users
+    where lower(email) = lower(${email}) and is_active = true
+    limit 1
+  `;
+  const user = rows[0];
+  if (user && (await canIssueResetToken(user.id))) {
+    const token = await issueResetToken(user.id);
+    const link = `${config.passwordResetUrl}?token=${encodeURIComponent(token)}`;
+    await Promise.all([
+      sendEmail({ to: email, ...passwordResetEmail(link) }),
+      appendAudit({
+        actor: { id: user.id, role: null },
+        action: 'password.reset_requested',
+        targetEntity: 'user',
+        targetId: user.id,
+        ip: ctx.ip,
+      }),
+    ]);
+    // Surface the link in development only so the flow is testable end-to-end.
+    if (config.env !== 'production') return { ok: true, devLink: link };
+  }
+  return generic;
+}
+
+async function ResetPasswordWithToken({ token, newPassword }, ctx) {
+  const passwordErr = validatePassword(newPassword);
+  if (passwordErr) return { ok: false, errors: { newPassword: passwordErr } };
+
+  const userId = await consumeResetToken(token);
+  if (!userId) return { ok: false, error: 'This reset link is invalid or has expired' };
+
+  await sql`
+    update public.users
+    set password_hash = extensions.crypt(${newPassword}, extensions.gen_salt('bf'))
+    where id = ${userId}::uuid
+  `;
+  await appendAudit({
+    actor: { id: userId, role: null },
+    action: 'password.reset_completed',
+    targetEntity: 'user',
+    targetId: userId,
+    ip: ctx.ip,
+  });
+  eventBus.emit(Events.user.ProfileUpdated, { userId, fields: { password: true } }, ctx);
+  return { ok: true };
+}
+
 export const commands = {
   StartLogin,
   VerifyOtp,
@@ -309,18 +396,26 @@ export const commands = {
   Logout,
   EnrollBiometric,
   BiometricLogin,
-  RequestPasswordChangeOtp,
+  StartPasswordChange,
   VerifyPasswordChangeOtp,
+  RequestPasswordReset,
+  ResetPasswordWithToken,
 };
 
 // All auth commands are public — they take credentials, not a Bearer token.
-// EnrollBiometric is the one exception; mark it auth-required.
+// EnrollBiometric and the password-CHANGE commands are the exceptions: they act
+// on ctx.actor, so they require a Bearer token. The password-RESET commands are
+// for logged-out users (the token in the link is the credential), so public.
 export const meta = {
-  StartLogin:       { public: true },
-  VerifyOtp:        { public: true },
-  Register:         { public: true },
-  Refresh:          { public: true },
-  Logout:           { public: true },
-  BiometricLogin:   { public: true },
-  EnrollBiometric:  {},
+  StartLogin:             { public: true },
+  VerifyOtp:              { public: true },
+  Register:               { public: true },
+  Refresh:                { public: true },
+  Logout:                 { public: true },
+  BiometricLogin:         { public: true },
+  EnrollBiometric:        {},
+  StartPasswordChange:    {},
+  VerifyPasswordChangeOtp: {},
+  RequestPasswordReset:   { public: true },
+  ResetPasswordWithToken: { public: true },
 };

@@ -23,6 +23,7 @@
     "helmet": "^8.2.0",
     "ioredis": "^5.11.0",
     "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^6.10.1",
     "postgres": "^3.4.4",
     "rate-limiter-flexible": "^11.1.1",
     "sanitize-html": "^2.17.4",

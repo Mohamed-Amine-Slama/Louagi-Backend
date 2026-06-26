@@ -24,9 +24,11 @@ async function ResendOtp({ userId }) {
   }
 
   const rows = await sql`
-    select phone_number from public.users where id = ${userId}::uuid limit 1
+    select phone_number, email from public.users where id = ${userId}::uuid limit 1
   `;
-  const issued = await issueOtp(userId, purpose, { phone: rows[0]?.phone_number });
+  // The password-change OTP is delivered by email; login/register by SMS.
+  const channel = purpose === 'password' ? { email: rows[0]?.email } : { phone: rows[0]?.phone_number };
+  const issued = await issueOtp(userId, purpose, channel);
   return { ok: true, devOtp: issued.devOtp };
 }
 

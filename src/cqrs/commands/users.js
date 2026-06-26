@@ -66,11 +66,11 @@ async function UpdateProfile({ fullName, email, currentPassword, newPassword }, 
   return { ok: true };
 }
 
-async function UpdateNotificationPrefs({ sms, push }, ctx) {
+async function UpdateNotificationPrefs({ sms, push, marketing }, ctx) {
   const actor = ctx.actor;
   await sql`
     update public.users
-    set notifications = ${JSON.stringify({ sms: Boolean(sms), push: Boolean(push) })}::jsonb
+    set notifications = ${JSON.stringify({ sms: Boolean(sms), push: Boolean(push), marketing: Boolean(marketing) })}::jsonb
     where id = ${actor.id}::uuid
   `;
   eventBus.emit(Events.user.NotificationsUpdated, { userId: actor.id }, ctx);

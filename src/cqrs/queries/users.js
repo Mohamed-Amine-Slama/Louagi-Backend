@@ -65,7 +65,7 @@ async function GetProfile(_input, ctx) {
     phone_masked: user.phone_number,
     role: user.role,
     created_at: user.created_at,
-    notifications: user.notifications ?? { sms: true, push: true },
+    notifications: { sms: true, push: true, marketing: false, ...(user.notifications ?? {}) },
     preferences: user.preferences ?? {},
     // Client expects the legacy key `payment_method` for the account info.
     payment_method: user.payment_account ?? null,

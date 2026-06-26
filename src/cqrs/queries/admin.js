@@ -26,13 +26,24 @@ async function AdminStats(_input, ctx) {
         select count(*)::int
         from public.users
         where created_at >= now() - interval '1 day'
-      ) as new_users
+      ) as new_users,
+      (
+        select count(*)::int from public.driver_locations
+        where updated_at >= now() - interval '5 minutes'
+      ) as online_drivers,
+      (select count(*)::int from public.drivers where status = 'pending') as pending_verifications,
+      (select count(*)::int from public.payments where flagged) as flagged_payments,
+      (select count(*)::int from public.payments where flagged or status = 'failed') as open_alerts
   `;
   return {
     activeRides: stats.active_rides,
     bookingsToday: stats.bookings_today,
     revenueToday: toNumber(stats.revenue_today),
     newUsers: stats.new_users,
+    onlineDrivers: stats.online_drivers,
+    pendingVerifications: stats.pending_verifications,
+    flaggedPayments: stats.flagged_payments,
+    openAlerts: stats.open_alerts,
   };
 }
 
@@ -384,7 +395,7 @@ export const queries = {
 };
 
 export const meta = {
-  AdminStats:  { cache: { key: () => cacheKey.adminStats(),  ttl: 120, role: 'admin' } },
+  AdminStats:  { cache: { key: () => cacheKey.adminStats(),  ttl: 15, role: 'admin' } },
   AdminAlerts: { cache: { key: () => cacheKey.adminAlerts(), ttl: 120, role: 'admin' } },
   AdminSearchUsers: {
     cache: {

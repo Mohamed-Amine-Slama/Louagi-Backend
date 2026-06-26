@@ -51,6 +51,25 @@ export const config = {
     authToken: process.env.TWILIO_AUTH_TOKEN || '',
     from: process.env.TWILIO_FROM || '',
   },
+
+  // Email delivery (password-change OTP + password-reset link). 'smtp' uses
+  // the SMTP credentials configured for the Supabase project via nodemailer;
+  // 'log' prints to stdout (dev only); unset → emails are generated but not
+  // delivered (devOtp/devLink still surface in development).
+  emailProvider: process.env.EMAIL_PROVIDER || (process.env.SMTP_HOST ? 'smtp' : ''),
+  emailFrom: process.env.EMAIL_FROM || 'Louagi <no-reply@louagi.app>',
+  smtp: {
+    host: process.env.SMTP_HOST || '',
+    port: Number(process.env.SMTP_PORT || 587),
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
+    // Implicit TLS (port 465). STARTTLS (587) is negotiated automatically.
+    secure: process.env.SMTP_SECURE === 'true' || Number(process.env.SMTP_PORT) === 465,
+  },
+
+  // Deep link the password-reset email points at. The mobile app registers the
+  // `louagi://` scheme and routes `reset-password` to the reset screen.
+  passwordResetUrl: process.env.PASSWORD_RESET_URL || 'louagi://reset-password',
 };
 
 // Loud production misconfiguration warnings — none of these are fatal, but
@@ -58,6 +77,9 @@ export const config = {
 if (env === 'production') {
   if (!config.smsProvider || config.smsProvider === 'log') {
     console.warn('[config] SMS_PROVIDER is not set — login OTPs cannot reach users');
+  }
+  if (!config.emailProvider || config.emailProvider === 'log') {
+    console.warn('[config] EMAIL_PROVIDER/SMTP_* not set — password-change codes and reset links cannot reach users');
   }
   if (!config.piiEncryptionKey) {
     console.warn('[config] PII_ENCRYPTION_KEY is not set — driver ID/license/payout fields stored in plaintext');

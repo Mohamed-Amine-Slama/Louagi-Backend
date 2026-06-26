@@ -20,15 +20,24 @@ import crypto from 'crypto';
 import { config } from '../config.js';
 import { getRedis, isRedisReady } from '../cache/redis.js';
 import { sendSms } from '../lib/sms.js';
+import { sendEmail, passwordOtpEmail } from '../lib/email.js';
 
 const OTP_TTL_SEC = 300;
 const MAX_ATTEMPTS = 5;
 const RESEND_COOLDOWN_SEC = 30;
 
+// Password-reset deep-link token: longer-lived than a 6-digit OTP and the sole
+// credential for a logged-out reset, so it is long, random, single-use, and
+// stored only as a hash.
+const RESET_TTL_SEC = 1800; // 30 minutes
+const RESET_COOLDOWN_SEC = 60;
+
 export const OTP_PURPOSES = ['login', 'register', 'password'];
 
 const otpKey = (userId) => `otp:code:${userId}`;
 const cooldownKey = (userId) => `otp:cooldown:${userId}`;
+const resetKey = (tokenHash) => `pwreset:token:${tokenHash}`;
+const resetCooldownKey = (userId) => `pwreset:cooldown:${userId}`;
 
 const sha256 = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 
@@ -73,9 +82,9 @@ async function storeDel(key) {
 
 // Generate, store, and send an OTP. Returns { devOtp } — the code itself
 // outside production, null in production where it only travels out-of-band.
-// Pass { phone } to deliver; SMS failures are logged, never fatal (the user
-// can hit resend).
-export async function issueOtp(userId, purpose, { phone } = {}) {
+// Deliver via { email } (password-change flow) or { phone } (login/register);
+// delivery failures are logged, never fatal (the user can hit resend).
+export async function issueOtp(userId, purpose, { phone, email } = {}) {
   if (!OTP_PURPOSES.includes(purpose)) throw new Error(`Unknown OTP purpose: ${purpose}`);
   const code =
     config.env === 'production'
@@ -88,11 +97,13 @@ export async function issueOtp(userId, purpose, { phone } = {}) {
     OTP_TTL_SEC
   );
 
-  if (phone) {
+  if (email) {
+    await sendEmail({ to: email, ...passwordOtpEmail(code) });
+  } else if (phone) {
     await sendSms(phone, `Louagi: votre code de vérification est ${code}. Valable 5 minutes.`);
   } else if (config.env === 'production') {
     // eslint-disable-next-line no-console
-    console.warn(`[otp] code issued for user ${userId} (${purpose}) without a delivery phone`);
+    console.warn(`[otp] code issued for user ${userId} (${purpose}) without a delivery channel`);
   }
 
   return { devOtp: config.env === 'production' ? null : code };
@@ -137,4 +148,38 @@ export async function canResendOtp(userId) {
 export async function pendingOtpPurpose(userId) {
   const record = await storeGet(otpKey(userId));
   return record && record.expiresAt > Date.now() ? record.purpose : null;
+}
+
+// ─── Password-reset token (deep link) ───────────────────────────────────────
+
+// Reset throttle: one reset email per cooldown window per user, so the forgot
+// flow can't be used to bomb a known address.
+export async function canIssueResetToken(userId) {
+  if (await storeGet(resetCooldownKey(userId))) return false;
+  await storeSet(resetCooldownKey(userId), 1, RESET_COOLDOWN_SEC);
+  return true;
+}
+
+// Mint a single-use reset token for the user. The raw token is returned (to be
+// emailed); only its hash is stored, keyed by the hash so it can be looked up
+// from the link alone.
+export async function issueResetToken(userId) {
+  const token = crypto.randomBytes(32).toString('hex');
+  await storeSet(
+    resetKey(sha256(token)),
+    { userId, expiresAt: Date.now() + RESET_TTL_SEC * 1000 },
+    RESET_TTL_SEC
+  );
+  return token;
+}
+
+// Validate and consume a reset token. Single-use: deleted on success. Returns
+// the userId it was minted for, or null if missing/expired.
+export async function consumeResetToken(token) {
+  if (!token) return null;
+  const key = resetKey(sha256(token));
+  const record = await storeGet(key);
+  if (!record || record.expiresAt <= Date.now()) return null;
+  await storeDel(key);
+  return record.userId;
 }
