@@ -7,6 +7,7 @@ import { Router } from 'express';
 import { sql } from '../db.js';
 import { dispatch, hasOperation } from '../cqrs/index.js';
 import { createLoaders } from '../graphql/loaders.js';
+import { buildClientContext } from '../lib/clientContext.js';
 
 export const graphqlRouter = Router();
 
@@ -25,9 +26,13 @@ graphqlRouter.post('/graphql', async (req, res, next) => {
     });
   }
 
+  // ip is server-derived; client carries the security context recorded in
+  // audit entries (ipGeo server-derived; gps/device client-claimed).
+  const { ip, client } = buildClientContext(req);
   const ctx = {
     req,
-    ip: req.ip || req.get('x-forwarded-for') || 'server',
+    ip,
+    client,
     loaders: createLoaders(sql),
     actor: null, // populated by auth middleware on the bus
   };

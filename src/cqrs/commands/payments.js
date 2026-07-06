@@ -49,7 +49,7 @@ async function AdminRefund({ paymentId, amount }, ctx) {
     targetEntity: 'payment',
     targetId: paymentId,
     metadata: { amount: value, original: Number(payment.amount) },
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.payment.Refunded, {
     paymentId,
@@ -80,7 +80,7 @@ async function AdminFlagPayment({ paymentId, reason }, ctx) {
     targetEntity: 'payment',
     targetId: paymentId,
     metadata: { reason },
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.payment.Flagged, { paymentId, reason }, ctx);
 
@@ -117,7 +117,7 @@ async function AdminUnflagPayment({ paymentId, note }, ctx) {
     targetEntity: 'payment',
     targetId: paymentId,
     metadata: { restoredStatus, note: note || null, previousReason: payment.flagged_reason ?? null },
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.payment.Unflagged, { paymentId }, ctx);
 

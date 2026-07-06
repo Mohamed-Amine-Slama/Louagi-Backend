@@ -9,6 +9,7 @@ import { config } from '../config.js';
 import { can } from '../utils/rbac.js';
 import { withTimeout } from '../lib/supabase/withTimeout.js';
 import { decryptField } from '../lib/fieldCrypto.js';
+import { auditEntry } from '../lib/auditEntry.js';
 
 // ─── Errors ────────────────────────────────────────────────────────────────-
 export class HttpError extends Error {
@@ -50,7 +51,12 @@ export async function requireActor(ctx) {
 }
 
 // ─── Audit log ──────────────────────────────────────────────────────────────
-export async function appendAudit({ actor, action, targetEntity, targetId, metadata, ip }) {
+// Pass the request ctx so the entry records the caller's IP plus the client
+// security context (IP geolocation, claimed GPS, device fingerprint, UA)
+// under metadata.client. Callers without a request (jobs, system) omit both
+// ctx and ip and get ip_address = 'server'.
+export async function appendAudit({ actor, action, targetEntity, targetId, metadata, ip, ctx }) {
+  const row = auditEntry({ actor, action, targetEntity, targetId, metadata, ip, ctx });
   await sql`
     insert into public.audit_log (
       actor_id,
@@ -61,13 +67,13 @@ export async function appendAudit({ actor, action, targetEntity, targetId, metad
       metadata,
       ip_address
     ) values (
-      ${actor?.id ?? null}::uuid,
-      ${actor?.role ?? null}::user_role,
-      ${action},
-      ${targetEntity ?? null},
-      ${targetId ?? null}::uuid,
-      ${metadata ? JSON.stringify(metadata) : null}::jsonb,
-      ${ip ?? 'server'}
+      ${row.actorId}::uuid,
+      ${row.actorRole}::user_role,
+      ${row.action},
+      ${row.targetEntity},
+      ${row.targetId}::uuid,
+      ${row.metadata ? JSON.stringify(row.metadata) : null}::jsonb,
+      ${row.ip}
     )
   `;
 }

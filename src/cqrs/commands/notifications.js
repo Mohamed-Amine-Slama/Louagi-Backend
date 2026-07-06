@@ -158,7 +158,7 @@ async function AdminSendNotification({ audience, userId, title, body, data }, ct
       pushed: result.pushed,
       failed: result.failed,
     },
-    ip: ctx.ip,
+    ctx,
   });
 
   return {

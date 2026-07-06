@@ -76,7 +76,7 @@ async function StartLogin({ phone, password }, ctx) {
         targetEntity: 'user',
         targetId: user?.id ?? null,
         metadata: { phone: normalizedPhone, reason },
-        ip: ctx.ip,
+        ctx,
       }),
     ]);
     return { ok: false, error: 'Phone or password is incorrect' };
@@ -89,7 +89,7 @@ async function StartLogin({ phone, password }, ctx) {
       action: 'login.credentials_ok',
       targetEntity: 'user',
       targetId: user.id,
-      ip: ctx.ip,
+      ctx,
     }),
   ]);
 
@@ -118,7 +118,7 @@ async function VerifyOtp({ userId, purpose, otp }, ctx) {
     action: purpose === 'register' ? 'register.verified' : 'login.success',
     targetEntity: 'user',
     targetId: session.user.id,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.user.LoggedIn, { userId: session.user.id, method: 'password' }, ctx);
 
@@ -183,7 +183,7 @@ async function Register({ fullName, phone, email, password, role }, ctx) {
       action: 'register.created',
       targetEntity: 'user',
       targetId: user.id,
-      ip: ctx.ip,
+      ctx,
     }),
   ]);
   eventBus.emit(Events.user.Registered, { userId: user.id, role: user.role }, ctx);
@@ -234,7 +234,7 @@ async function EnrollBiometric({ userId }, ctx) {
     action: 'biometric.enrolled',
     targetEntity: 'user',
     targetId: actor.id,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.user.BiometricEnrolled, { userId: actor.id }, ctx);
   return { ok: true, ticket };
@@ -284,7 +284,7 @@ async function BiometricLogin({ ticket }, ctx) {
     action: 'login.biometric',
     targetEntity: 'user',
     targetId: session.user.id,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.user.LoggedIn, { userId: session.user.id, method: 'biometric' }, ctx);
 
@@ -316,7 +316,7 @@ async function StartPasswordChange({ currentPassword }, ctx) {
       action: 'password.otp_requested',
       targetEntity: 'user',
       targetId: actor.id,
-      ip: ctx.ip,
+      ctx,
     }),
   ]);
   return { ok: true, devOtp: issued.devOtp };
@@ -356,7 +356,7 @@ async function RequestPasswordReset({ email }, ctx) {
         action: 'password.reset_requested',
         targetEntity: 'user',
         targetId: user.id,
-        ip: ctx.ip,
+        ctx,
       }),
     ]);
     // Surface the link in development only so the flow is testable end-to-end.
@@ -382,7 +382,7 @@ async function ResetPasswordWithToken({ token, newPassword }, ctx) {
     action: 'password.reset_completed',
     targetEntity: 'user',
     targetId: userId,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.user.ProfileUpdated, { userId, fields: { password: true } }, ctx);
   return { ok: true };

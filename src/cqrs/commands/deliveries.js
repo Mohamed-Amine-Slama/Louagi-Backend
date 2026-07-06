@@ -188,7 +188,7 @@ async function UpdateDeliveryStatus({ id, status }, ctx) {
     action: `delivery.status.${status}`,
     targetEntity: 'delivery',
     targetId: id,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.delivery.StatusChanged, {
     deliveryId: id,

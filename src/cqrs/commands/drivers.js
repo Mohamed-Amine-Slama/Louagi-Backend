@@ -94,7 +94,7 @@ async function RegisterDriverApplication(
     action: 'driver.application.submitted',
     targetEntity: 'driver',
     targetId: rows[0].id,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.driver.ApplicationSubmitted, { userId: actor.id, driverId: rows[0].id }, ctx);
 
@@ -122,7 +122,7 @@ async function UpdateDriverVehicle({ brand, model, seatCount }, ctx) {
     action: 'driver.vehicle.updated',
     targetEntity: 'driver',
     targetId: rows[0].id,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.driver.VehicleUpdated, { userId: actor.id }, ctx);
   return { ok: true };
@@ -143,7 +143,7 @@ async function UpdateDriverPayout({ account }, ctx) {
     action: 'driver.payout.updated',
     targetEntity: 'driver',
     targetId: rows[0].id,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.driver.PayoutUpdated, { userId: actor.id }, ctx);
   return { ok: true };
@@ -178,7 +178,7 @@ async function AdminVerifyDriver({ driverId, approve, reason }, ctx) {
     targetEntity: 'driver',
     targetId: driverId,
     metadata: { reason },
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(
     approve ? Events.driver.Verified : Events.driver.Rejected,
@@ -197,7 +197,7 @@ async function Enable2FA(_input, ctx) {
     returning id
   `;
   if (!rows.length) return { ok: false, error: 'Driver record not found' };
-  await appendAudit({ actor, action: 'driver.2fa.enabled', targetEntity: 'driver', targetId: actor.id, ip: ctx.ip });
+  await appendAudit({ actor, action: 'driver.2fa.enabled', targetEntity: 'driver', targetId: actor.id, ctx });
   eventBus.emit(Events.driver.TwoFAChanged, { userId: actor.id, enabled: true }, ctx);
   return { ok: true };
 }
@@ -211,7 +211,7 @@ async function Disable2FA(_input, ctx) {
     returning id
   `;
   if (!rows.length) return { ok: false, error: 'Driver record not found' };
-  await appendAudit({ actor, action: 'driver.2fa.disabled', targetEntity: 'driver', targetId: actor.id, ip: ctx.ip });
+  await appendAudit({ actor, action: 'driver.2fa.disabled', targetEntity: 'driver', targetId: actor.id, ctx });
   eventBus.emit(Events.driver.TwoFAChanged, { userId: actor.id, enabled: false }, ctx);
   return { ok: true };
 }
@@ -225,7 +225,7 @@ async function RevokeDriverSession({ sessionId }, ctx) {
     returning id
   `;
   if (!rows.length) return { ok: false, error: 'Session not found' };
-  await appendAudit({ actor, action: 'session.revoked', targetEntity: 'session', targetId: sessionId, ip: ctx.ip });
+  await appendAudit({ actor, action: 'session.revoked', targetEntity: 'session', targetId: sessionId, ctx });
   eventBus.emit(Events.driver.SessionRevoked, { userId: actor.id, sessionId }, ctx);
   return { ok: true };
 }
@@ -238,7 +238,7 @@ async function AcceptTerms({ version }, ctx) {
         accepted_terms_at = now()
     where user_id = ${actor.id}::uuid
   `;
-  await appendAudit({ actor, action: 'policies.terms_accepted', targetEntity: 'driver', targetId: actor.id, metadata: { version }, ip: ctx.ip });
+  await appendAudit({ actor, action: 'policies.terms_accepted', targetEntity: 'driver', targetId: actor.id, metadata: { version }, ctx });
   eventBus.emit(Events.driver.TermsAccepted, { userId: actor.id, version }, ctx);
   return { ok: true };
 }
@@ -250,7 +250,7 @@ async function AcceptPrivacy({ version }, ctx) {
     set accepted_privacy_at = now()
     where user_id = ${actor.id}::uuid
   `;
-  await appendAudit({ actor, action: 'policies.privacy_accepted', targetEntity: 'driver', targetId: actor.id, metadata: { version }, ip: ctx.ip });
+  await appendAudit({ actor, action: 'policies.privacy_accepted', targetEntity: 'driver', targetId: actor.id, metadata: { version }, ctx });
   eventBus.emit(Events.driver.PrivacyAccepted, { userId: actor.id }, ctx);
   return { ok: true };
 }
@@ -262,7 +262,7 @@ async function RequestDataDeletion({ reason }, ctx) {
     set data_deletion_requested = true
     where user_id = ${actor.id}::uuid
   `;
-  await appendAudit({ actor, action: 'gdpr.deletion_requested', targetEntity: 'user', targetId: actor.id, metadata: { reason }, ip: ctx.ip });
+  await appendAudit({ actor, action: 'gdpr.deletion_requested', targetEntity: 'user', targetId: actor.id, metadata: { reason }, ctx });
   eventBus.emit(Events.driver.DeletionRequested, { userId: actor.id, reason }, ctx);
   return { ok: true, message: 'Deletion request submitted. Our team will process it within 30 days.' };
 }

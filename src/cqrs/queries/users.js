@@ -155,7 +155,7 @@ async function RequestDataExport(_input, ctx) {
     action: 'gdpr.export_data',
     targetEntity: 'user',
     targetId: actor.id,
-    ip: ctx.ip,
+    ctx,
   });
   return {
     ok: true,

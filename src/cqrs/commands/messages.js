@@ -22,7 +22,7 @@ async function SendMessage({ receiverId, text }, ctx) {
     action: 'message.sent',
     targetEntity: 'message',
     targetId: m.id,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.message.Sent, { messageId: m.id, senderId: actor.id, receiverId }, ctx);
 
@@ -55,7 +55,7 @@ async function DeleteMessage(input, ctx) {
     targetEntity: 'message',
     targetId: messageId,
     metadata: { forEveryone },
-    ip: ctx.ip,
+    ctx,
   });
 
   if (partners[0]) {

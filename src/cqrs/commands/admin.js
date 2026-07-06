@@ -50,7 +50,7 @@ async function AdminSetUserActive({ userId, active }, ctx) {
     action: active ? 'user.reactivated' : 'user.suspended',
     targetEntity: 'user',
     targetId: userId,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(
     active ? Events.user.Reactivated : Events.user.Suspended,
@@ -86,7 +86,7 @@ async function AdminImpersonate({ userId, mfaCode }, ctx) {
       targetEntity: 'user',
       targetId: target.id,
       metadata: { targetRole: target.role, method: stepUp.method },
-      ip: ctx.ip,
+      ctx,
     });
     return { ok: false, error: 'Step-up verification required' };
   }
@@ -103,7 +103,7 @@ async function AdminImpersonate({ userId, mfaCode }, ctx) {
     targetEntity: 'user',
     targetId: target.id,
     metadata: { targetRole: target.role },
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.admin.Impersonated, { adminId: actor.id, targetUserId: target.id }, ctx);
   return {
@@ -139,7 +139,7 @@ async function AdminSetupTotp(_input, ctx) {
     action: 'admin.totp.setup',
     targetEntity: 'user',
     targetId: actor.id,
-    ip: ctx.ip,
+    ctx,
   });
   return { ok: true, secret, uri: totpUri(secret, actor.name || 'admin') };
 }
@@ -164,7 +164,7 @@ async function AdminActivateTotp({ code }, ctx) {
     action: 'admin.totp.enabled',
     targetEntity: 'user',
     targetId: actor.id,
-    ip: ctx.ip,
+    ctx,
   });
   return { ok: true };
 }
@@ -195,7 +195,7 @@ async function AdminDisableTotp({ code }, ctx) {
     action: 'admin.totp.disabled',
     targetEntity: 'user',
     targetId: actor.id,
-    ip: ctx.ip,
+    ctx,
   });
   return { ok: true };
 }

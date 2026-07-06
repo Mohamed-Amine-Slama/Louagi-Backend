@@ -60,7 +60,7 @@ async function UpdateProfile({ fullName, email, currentPassword, newPassword }, 
     action: 'profile.updated',
     targetEntity: 'user',
     targetId: actor.id,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.user.ProfileUpdated, { userId: actor.id, fields: { fullName: fullName != null, email: email != null, password: !!newPassword } }, ctx);
   return { ok: true };
@@ -91,7 +91,7 @@ async function DeleteAccount({ password }, ctx) {
     action: 'user.self_deleted',
     targetEntity: 'user',
     targetId: actor.id,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.user.SelfDeleted, { userId: actor.id }, ctx);
   return { ok: true };
@@ -114,7 +114,7 @@ async function DeleteMyAccount(_input, ctx) {
     action: 'gdpr.delete_account',
     targetEntity: 'user',
     targetId: actor.id,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.user.Deleted, { userId: actor.id }, ctx);
   return { ok: true, message: 'Account deleted' };
@@ -139,7 +139,7 @@ async function UpdateTravelPrefs({ defaultSeats }, ctx) {
     targetEntity: 'user',
     targetId: actor.id,
     metadata: { defaultSeats: seats },
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.user.ProfileUpdated, { userId: actor.id, fields: { preferences: true } }, ctx);
   return { ok: true, preferences: rows[0]?.preferences ?? {} };
@@ -168,7 +168,7 @@ async function UpdatePaymentMethod({ flouciAccount }, ctx) {
     action: account ? 'payment_method.updated' : 'payment_method.removed',
     targetEntity: 'user',
     targetId: actor.id,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.user.ProfileUpdated, { userId: actor.id, fields: { paymentMethod: true } }, ctx);
   // The client expects this key shape from the legacy mock — keep it stable.
@@ -191,7 +191,7 @@ async function CreateSupportTicket({ topic, message }, ctx) {
     action: 'support.ticket_created',
     targetEntity: 'support_ticket',
     targetId: rows[0].id,
-    ip: ctx.ip,
+    ctx,
   });
   return { ok: true, ticket: rows[0] };
 }
@@ -230,7 +230,7 @@ async function ChangePasswordSecure({ currentPassword, newPassword }, ctx) {
     action: 'password.changed',
     targetEntity: 'user',
     targetId: actor.id,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.user.ProfileUpdated, { userId: actor.id, fields: { password: true } }, ctx);
   return { ok: true };

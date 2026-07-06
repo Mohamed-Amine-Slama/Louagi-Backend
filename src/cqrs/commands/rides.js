@@ -76,7 +76,7 @@ async function CreateRide({ origin, destination, routeId, departureTime, availab
     action: 'ride.created',
     targetEntity: 'ride',
     targetId: rows[0].id,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.ride.Created, { rideId: rows[0].id, driverUserId: actor.id }, ctx);
 
@@ -110,7 +110,7 @@ async function UpdateRideStatus({ rideId, status }, ctx) {
     action: `ride.status.${status}`,
     targetEntity: 'ride',
     targetId: rideId,
-    ip: ctx.ip,
+    ctx,
   });
   eventBus.emit(Events.ride.StatusChanged, { rideId, driverUserId: ride.user_id, status }, ctx);
 

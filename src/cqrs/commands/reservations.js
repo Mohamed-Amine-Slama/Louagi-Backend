@@ -55,7 +55,7 @@ async function CreateReservation(input, ctx) {
                 action: 'reservation.confirmed',
                 targetEntity: 'reservation',
                 targetId: resId,
-                ip: ctx.ip,
+                ctx,
               }),
             ]);
 
