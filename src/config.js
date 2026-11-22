@@ -43,6 +43,11 @@ export const config = {
   // src/lib/fieldCrypto.js and scripts/encrypt-pii.js.
   piiEncryptionKey: process.env.PII_ENCRYPTION_KEY || '',
 
+  // Shared with the admin API gateway Worker (infra/modules/api_gateway). Set →
+  // admin tokens are only honored on requests the gateway stamped. Unset = no
+  // gateway in front (local dev).
+  gatewaySecret: process.env.GATEWAY_SECRET || '',
+
   // OTP delivery. 'twilio' needs the three TWILIO_* vars; 'log' prints codes
   // to stdout (dev only); unset → codes are generated but not delivered.
   smsProvider: process.env.SMS_PROVIDER || '',
@@ -83,6 +88,9 @@ if (env === 'production') {
   }
   if (!config.piiEncryptionKey) {
     console.warn('[config] PII_ENCRYPTION_KEY is not set — driver ID/license/payout fields stored in plaintext');
+  }
+  if (!config.gatewaySecret) {
+    console.warn('[config] GATEWAY_SECRET is not set — admin tokens work on every hostname, bypassing the admin API gateway');
   }
   if (config.corsOrigins.includes('*')) {
     console.warn('[config] CORS_ORIGINS is "*" — lock this down to the app origins');

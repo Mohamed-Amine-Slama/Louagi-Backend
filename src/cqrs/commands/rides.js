@@ -1,6 +1,7 @@
 // Ride commands — CreateRide, UpdateRideStatus, CancelRide.
 
 import { sql } from '../../db.js';
+import { encryptField, encryptJson } from '../../lib/fieldCrypto.js';
 import {
   appendAudit,
   assertCan,
@@ -157,8 +158,8 @@ async function CancelRide({ rideId, reason }, ctx) {
         'ride.cancelled',
         'ride',
         ${rideId}::uuid,
-        ${JSON.stringify({ reason, affectedReservations: affected.length })}::jsonb,
-        ${ctx.ip ?? 'server'}
+        ${encryptJson({ reason, affectedReservations: affected.length })}::jsonb,
+        ${encryptField(ctx.ip) ?? 'server'}
       )
     `;
     return {

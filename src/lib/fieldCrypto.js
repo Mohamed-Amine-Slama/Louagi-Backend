@@ -9,12 +9,24 @@
 // key, encryptField is a no-op (plaintext) so development needs no setup;
 // production logs a warning at boot (see config.js).
 //
-// What is deliberately NOT encrypted:
-//   * users.phone_number — exact-match login lookup and admin partial search
-//     both query it in SQL; encrypting it breaks those features without a
-//     blind-index redesign.
-//   * drivers.plate_number — used in SQL uniqueness checks and is public
-//     street-visible data.
+// Reads: db.js decrypts every `enc:v1:` value centrally (decryptValue), so
+// query code sees plaintext. Writes: wrap each personal / user-authored value
+// in encryptField (text) or encryptJson (jsonb) at the insert/update site.
+//
+// Encrypted: users.full_name/phone_number/email/payment_account/
+// admin_totp_secret, drivers.id_card_number/license_number/payout_account/
+// rejection_reason, messages.content, support_tickets.message, reviews.comment,
+// delivery.item_description/driver_notes, notifications + notification_campaigns
+// title/body, audit_log.ip_address/metadata (new rows; old rows are immutable),
+// user_sessions + driver_sessions device/ip. Phone and email also get a keyed
+// blind index (users.phone_hash/email_hash) for exact-match lookup + uniqueness.
+// Passwords are bcrypt-hashed in SQL (extensions.crypt), never encrypted.
+//
+// What is deliberately NOT encrypted (SQL filters, joins or public data):
+//   * ids, foreign keys, enums, timestamps, prices, seat counts, ratings.
+//   * drivers.plate_number — SQL uniqueness check, street-visible.
+//   * routes/cities, driver_locations coordinates — public map/search data.
+//   * push_tokens.token — upsert key; notifications.data — deep-link ids only.
 
 import crypto from 'crypto';
 
@@ -90,4 +102,42 @@ export function decryptField(value) {
     console.error('[fieldCrypto] decryption failed (wrong key or corrupted value)');
     return null;
   }
+}
+
+// jsonb columns: store the encrypted JSON text as a jsonb string scalar.
+// Bind as `${encryptJson(v)}::jsonb` — postgres-js JSON-serializes ::jsonb
+// params itself, so return the raw value (never a pre-stringified literal).
+export function encryptJson(value) {
+  if (value === null || value === undefined) return null;
+  const json = JSON.stringify(value);
+  const enc = encryptField(json);
+  return enc === json ? value : enc; // no key → plain jsonb
+}
+
+const JSON_OIDS = new Set([114, 3802]); // json, jsonb
+
+// postgres-js `transform.value.from` hook (see db.js): decrypt any encrypted
+// value on the way out; jsonb columns get their JSON parsed back.
+export function decryptValue(value, column) {
+  if (!isEncrypted(value)) return value;
+  const plain = decryptField(value);
+  return plain !== null && JSON_OIDS.has(column?.type) ? JSON.parse(plain) : plain;
+}
+
+let cachedIndexKey;
+
+// Deterministic keyed hash (HMAC-SHA256) for exact-match lookup / uniqueness
+// on encrypted columns. Normalised (trim + lowercase) so emails match
+// case-insensitively. Subkey is derived so the AES key is never reused as-is.
+export function blindIndex(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (cachedIndexKey === undefined) {
+    const key = loadKey();
+    cachedIndexKey = key ? crypto.createHmac('sha256', key).update('louagi:blind-index:v1').digest() : null;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  // shortcut: without a key (dev) this is unkeyed SHA-256, guessable for phone numbers; production must set PII_ENCRYPTION_KEY.
+  return cachedIndexKey
+    ? crypto.createHmac('sha256', cachedIndexKey).update(normalized).digest('hex')
+    : crypto.createHash('sha256').update(normalized).digest('hex');
 }

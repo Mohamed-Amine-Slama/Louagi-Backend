@@ -26,7 +26,7 @@ export function initRedis() {
       }
       return delay;
     },
-    // Optional TLS config if needed for AWS ElastiCache
+    // TLS for managed Redis (rediss:// URLs); the compose stack's Redis is plain redis://
     ...(config.redisUrl.startsWith('rediss://') ? { tls: {} } : {}),
   });
 

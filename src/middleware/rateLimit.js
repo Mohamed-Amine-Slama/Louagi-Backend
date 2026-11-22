@@ -7,55 +7,40 @@ const rateLimitResponse = {
   error: 'Too many requests. Try again later.',
 };
 
-let limiterRedis = null;
-let limiterMemory = null;
-
-function initLimiters() {
-  const points = config.graphqlRateLimitMax || 100;
-  const duration = (config.rateLimitWindowMs || 60000) / 1000;
-  
-  limiterMemory = new RateLimiterMemory({
-    keyPrefix: 'rl_mem',
-    points,
-    duration,
-  });
-
-  const redisClient = getRedis();
-  if (redisClient) {
-    limiterRedis = new RateLimiterRedis({
-      storeClient: redisClient,
-      keyPrefix: 'rl_redis',
-      points,
-      duration,
-      inmemoryBlockOnConsumed: points + 1,
-    });
-  }
+// Per-client-IP limiter middleware with its own budget. Each one needs a distinct
+// keyPrefix: limiters that share a prefix share Redis keys, and so share one budget.
+// Keyed on IP because these run before any route sets req.actor.
+function ipRateLimit(keyPrefix, points) {
+  const duration = config.rateLimitWindowMs / 1000;
+  let memory = null;
+  let redis = null;
+  return async (req, res, next) => {
+    if (req.path === '/health') return next();
+    if (!memory) {
+      memory = new RateLimiterMemory({ keyPrefix: `${keyPrefix}_mem`, points, duration });
+      const storeClient = getRedis();
+      if (storeClient) {
+        redis = new RateLimiterRedis({
+          storeClient,
+          keyPrefix,
+          points,
+          duration,
+          inmemoryBlockOnConsumed: points + 1,
+        });
+      }
+    }
+    const limiter = isRedisReady() && redis ? redis : memory;
+    try {
+      await limiter.consume(req.ip, 1);
+      next();
+    } catch {
+      res.status(429).json(rateLimitResponse);
+    }
+  };
 }
 
-export const graphqlRateLimit = async (req, res, next) => {
-  if (!limiterMemory) initLimiters();
-  const key = req.actor ? req.actor.id : req.ip;
-  const limiter = isRedisReady() && limiterRedis ? limiterRedis : limiterMemory;
-  try {
-    await limiter.consume(key, 1);
-    next();
-  } catch {
-    res.status(429).json(rateLimitResponse);
-  }
-};
-
-export const apiRateLimit = async (req, res, next) => {
-  if (req.path === '/health') return next();
-  if (!limiterMemory) initLimiters();
-  const key = req.ip;
-  const limiter = isRedisReady() && limiterRedis ? limiterRedis : limiterMemory;
-  try {
-    await limiter.consume(key, 1);
-    next();
-  } catch {
-    res.status(429).json(rateLimitResponse);
-  }
-};
+export const apiRateLimit = ipRateLimit('rl_api', config.rateLimitMax);
+export const graphqlRateLimit = ipRateLimit('rl_graphql', config.graphqlRateLimitMax);
 
 // ─── Auth attempt limiter ───────────────────────────────────────────────────
 // Per-identifier brute-force guard for credential and OTP checks: 5 failed

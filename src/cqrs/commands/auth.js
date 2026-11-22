@@ -36,6 +36,7 @@ import {
   consumeResetToken,
 } from '../../auth/otp.js';
 import { sendEmail, passwordResetEmail } from '../../lib/email.js';
+import { blindIndex, encryptField } from '../../lib/fieldCrypto.js';
 import { config } from '../../config.js';
 import { eventBus } from '../event-bus.js';
 import { Events } from '../events.js';
@@ -60,7 +61,7 @@ async function StartLogin({ phone, password }, ctx) {
       u.is_active,
       u.password_hash = extensions.crypt(${password || ''}, u.password_hash) as password_ok
     from public.users u
-    where u.phone_number = ${normalizedPhone}
+    where u.phone_hash = ${blindIndex(normalizedPhone)}
     limit 1
   `;
   const user = rows[0];
@@ -142,8 +143,8 @@ async function Register({ fullName, phone, email, password, role }, ctx) {
   const existing = await sql`
     select phone_number, email
     from public.users
-    where phone_number = ${normalizedPhone}
-       or lower(email) = lower(${email})
+    where phone_hash = ${blindIndex(normalizedPhone)}
+       or email_hash = ${blindIndex(email)}
     limit 1
   `;
   if (existing.length) {
@@ -161,14 +162,18 @@ async function Register({ fullName, phone, email, password, role }, ctx) {
     insert into public.users (
       full_name,
       phone_number,
+      phone_hash,
       email,
+      email_hash,
       role,
       password_hash,
       is_active
     ) values (
-      ${sanitize(fullName)},
-      ${normalizedPhone},
-      ${email.toLowerCase()},
+      ${encryptField(sanitize(fullName))},
+      ${encryptField(normalizedPhone)},
+      ${blindIndex(normalizedPhone)},
+      ${encryptField(email.toLowerCase())},
+      ${blindIndex(email)},
       ${role}::user_role,
       extensions.crypt(${password}, extensions.gen_salt('bf')),
       true
@@ -342,7 +347,7 @@ async function RequestPasswordReset({ email }, ctx) {
 
   const rows = await sql`
     select id from public.users
-    where lower(email) = lower(${email}) and is_active = true
+    where email_hash = ${blindIndex(email)} and is_active = true
     limit 1
   `;
   const user = rows[0];

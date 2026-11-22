@@ -1,6 +1,7 @@
 // Review commands — SubmitReview.
 
 import { sql } from '../../db.js';
+import { encryptField } from '../../lib/fieldCrypto.js';
 import { sanitize } from '../../utils/validation.js';
 import { eventBus } from '../event-bus.js';
 import { Events } from '../events.js';
@@ -26,7 +27,7 @@ async function SubmitReview({ rideId, driverId, rating, comment }, ctx) {
   const result = await sql.begin(async (tx) => {
     await tx`
       insert into public.reviews (reservation_id, rating, comment)
-      values (${reservationId}::uuid, ${rating}, ${comment ? sanitize(comment) : null})
+      values (${reservationId}::uuid, ${rating}, ${comment ? encryptField(sanitize(comment)) : null})
       on conflict (reservation_id) do update set
         rating = excluded.rating,
         comment = excluded.comment,

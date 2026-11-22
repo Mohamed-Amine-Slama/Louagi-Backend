@@ -158,7 +158,7 @@ async function AdminVerifyDriver({ driverId, approve, reason }, ctx) {
     set
       status = ${approve ? 'verified' : 'rejected'}::driver_status,
       verified_at = ${approve ? new Date().toISOString() : null},
-      rejection_reason = ${approve ? null : sanitize(reason || '')}
+      rejection_reason = ${approve ? null : encryptField(sanitize(reason || ''))}
     where id = ${driverId}::uuid
     returning user_id
   `;
@@ -168,8 +168,8 @@ async function AdminVerifyDriver({ driverId, approve, reason }, ctx) {
     insert into public.notifications (user_id, title, body)
     values (
       ${targetUserId}::uuid,
-      ${approve ? 'Driver application approved' : 'Driver application rejected'},
-      ${approve ? 'Your account is now verified. You can start creating rides.' : reason || 'See your profile for next steps.'}
+      ${encryptField(approve ? 'Driver application approved' : 'Driver application rejected')},
+      ${encryptField(approve ? 'Your account is now verified. You can start creating rides.' : reason || 'See your profile for next steps.')}
     )
   `;
   await appendAudit({

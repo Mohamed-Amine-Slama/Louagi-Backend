@@ -1,6 +1,7 @@
 // Message commands.
 
 import { sql } from '../../db.js';
+import { encryptField } from '../../lib/fieldCrypto.js';
 import { sanitize } from '../../utils/validation.js';
 import { DeleteMessageSchema } from '../../utils/validation.server.js';
 import { appendAudit } from '../../graphql/helpers.js';
@@ -13,7 +14,7 @@ async function SendMessage({ receiverId, text }, ctx) {
   if (!content) return { ok: false, error: 'Empty message' };
   const rows = await sql`
     insert into public.messages (sender_id, receiver_id, content)
-    values (${actor.id}::uuid, ${receiverId}::uuid, ${content})
+    values (${actor.id}::uuid, ${receiverId}::uuid, ${encryptField(content)})
     returning *
   `;
   const m = rows[0];

@@ -102,16 +102,18 @@ async function AdminSearchUsers({ q }, ctx) {
         d.status as driver_status
       from public.users u
       left join public.drivers d on d.user_id = u.id
-      where (
-        ${query ? sql`u.full_name ilike ${'%' + query + '%'} or u.email ilike ${'%' + query + '%'} or u.phone_number ilike ${'%' + query + '%'}` : sql`true`}
-      )
       order by u.created_at desc
-      limit 100
+      ${query ? sql`` : sql`limit 100`}
     `,
     8000,
     'AdminSearchUsers'
   );
-  return rows.map((row) => ({
+  // shortcut: name/email/phone are encrypted, so search filters decrypted rows in memory; add a search index past ~50k users.
+  const needle = query.toLowerCase();
+  const matches = query
+    ? rows.filter((r) => [r.full_name, r.email, r.phone_number].some((v) => v?.toLowerCase().includes(needle))).slice(0, 100)
+    : rows;
+  return matches.map((row) => ({
     id: row.id,
     full_name: row.full_name,
     email: row.email,

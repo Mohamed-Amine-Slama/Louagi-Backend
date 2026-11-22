@@ -3,6 +3,7 @@
 import crypto from 'node:crypto';
 
 import { sql } from '../../db.js';
+import { encryptField } from '../../lib/fieldCrypto.js';
 import { dbBreaker } from '../../lib/supabase/CircuitBreaker.js';
 import { withRetry } from '../../lib/supabase/withRetry.js';
 import { safeQuery } from '../../lib/supabase/logger.js';
@@ -149,7 +150,7 @@ async function CancelReservation({ id }, ctx) {
         'reservation.cancelled',
         'reservation',
         ${id}::uuid,
-        ${ctx.ip ?? 'server'}
+        ${encryptField(ctx.ip) ?? 'server'}
       )
     `;
     return {

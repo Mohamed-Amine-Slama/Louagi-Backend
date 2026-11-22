@@ -19,7 +19,8 @@ import { queries as infraQueries } from './cqrs/queries/infra.js';
 
 const app = express();
 
-// Required for correct IP resolution when running behind AWS ALB / CloudFront
+// Required for correct IP resolution behind Cloudflare + cloudflared: Cloudflare
+// appends the connecting client IP to X-Forwarded-For, so the last hop is real.
 app.set('trust proxy', 1);
 
 // Security headers. CSP is disabled (JSON-only API, no HTML to protect);

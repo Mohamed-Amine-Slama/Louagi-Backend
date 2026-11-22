@@ -6,6 +6,7 @@
 
 import postgres from 'postgres';
 import { config } from './config.js';
+import { decryptValue } from './lib/fieldCrypto.js';
 
 const PRIVILEGED_DATABASE_USERS = new Set([
   'postgres',
@@ -48,6 +49,8 @@ export const sql = postgres(config.databaseUrl, {
   // does not support them in transaction mode.
   prepare: false,
   connection: { search_path: 'public' },
+  // PII is encrypted at the write sites; every enc:v1: value is decrypted here.
+  transform: { value: { from: decryptValue } },
 });
 
 export async function ping() {

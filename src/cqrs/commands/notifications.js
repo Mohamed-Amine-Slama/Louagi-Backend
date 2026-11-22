@@ -2,6 +2,7 @@
 // admin broadcast (persist rows + Expo push + campaign log + audit).
 
 import { sql } from '../../db.js';
+import { encryptField } from '../../lib/fieldCrypto.js';
 import { assertCan, appendAudit } from '../../graphql/helpers.js';
 import { sendExpoPush } from '../../lib/expoPush.js';
 
@@ -117,7 +118,7 @@ async function AdminSendNotification({ audience, userId, title, body, data }, ct
   // 1. One in-app notification row per recipient (record + history).
   await sql`
     insert into public.notifications (user_id, title, body, data, category, sent_by)
-    select uid, ${ttl}, ${bdy}, ${JSON.stringify(payload)}::jsonb, 'admin', ${actor.id}::uuid
+    select uid, ${encryptField(ttl)}, ${encryptField(bdy)}, ${JSON.stringify(payload)}::jsonb, 'admin', ${actor.id}::uuid
     from unnest(${userIds}::uuid[]) as uid
   `;
 
@@ -142,7 +143,7 @@ async function AdminSendNotification({ audience, userId, title, body, data }, ct
     insert into public.notification_campaigns
       (sent_by, title, body, audience, recipient_count, pushed_count, failed_count)
     values (
-      ${actor.id}::uuid, ${ttl}, ${bdy},
+      ${actor.id}::uuid, ${encryptField(ttl)}, ${encryptField(bdy)},
       ${JSON.stringify({ type: aud, userId: aud === 'single' ? userId : null })}::jsonb,
       ${userIds.length}, ${result.pushed}, ${result.failed}
     )

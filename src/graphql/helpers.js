@@ -8,7 +8,7 @@ import { actorFromRequest } from '../middleware/auth.js';
 import { config } from '../config.js';
 import { can } from '../utils/rbac.js';
 import { withTimeout } from '../lib/supabase/withTimeout.js';
-import { decryptField } from '../lib/fieldCrypto.js';
+import { decryptField, encryptField, encryptJson } from '../lib/fieldCrypto.js';
 import { auditEntry } from '../lib/auditEntry.js';
 
 // ─── Errors ────────────────────────────────────────────────────────────────-
@@ -72,8 +72,8 @@ export async function appendAudit({ actor, action, targetEntity, targetId, metad
       ${row.action},
       ${row.targetEntity},
       ${row.targetId}::uuid,
-      ${row.metadata ? JSON.stringify(row.metadata) : null}::jsonb,
-      ${row.ip}
+      ${encryptJson(row.metadata)}::jsonb,
+      ${encryptField(row.ip)}
     )
   `;
 }
@@ -350,8 +350,8 @@ export async function loadUserSession(userId, { includeRefreshToken = true, ctx 
       expires_at
     ) values (
       ${user.id}::uuid,
-      ${ua},
-      ${ip}::inet,
+      ${encryptField(ua)},
+      ${encryptField(ip)},
       now() + interval '14 days'
     )
     returning session_id

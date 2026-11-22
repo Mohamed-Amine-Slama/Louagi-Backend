@@ -1,4 +1,6 @@
 import { verifyToken } from '../auth/tokens.js';
+import { config } from '../config.js';
+import { viaAdminGateway } from '../lib/gateway.js';
 import { sql } from '../db.js';
 import { getCache, setCache, getRedis, isRedisReady } from '../cache/redis.js';
 import { safeQuery } from '../lib/supabase/logger.js';
@@ -31,7 +33,17 @@ export async function clearActorCache(userId) {
   }
 }
 
+// Admin tokens only count on traffic stamped by the admin API gateway, so a
+// leaked admin token can't be replayed against the public mobile hostname.
 export async function actorFromRequest(req) {
+  const actor = await resolveActor(req);
+  if (actor?.role === 'admin' && !viaAdminGateway(req.get('x-louagi-gateway'), config.gatewaySecret)) {
+    return null;
+  }
+  return actor;
+}
+
+async function resolveActor(req) {
   const header = req.get('authorization') || '';
   const match = header.match(/^Bearer\s+(.+)$/i);
   if (!match) return null;

@@ -3,6 +3,7 @@
 // account-wipe.
 
 import { sql } from '../../db.js';
+import { blindIndex, encryptField, encryptJson } from '../../lib/fieldCrypto.js';
 import {
   sanitize,
   validateEmail,
@@ -26,7 +27,7 @@ async function UpdateProfile({ fullName, email, currentPassword, newPassword }, 
     if (!err) {
       const existing = await sql`
         select id from public.users
-        where lower(email) = lower(${email}) and id <> ${actor.id}::uuid
+        where email_hash = ${blindIndex(email)} and id <> ${actor.id}::uuid
         limit 1
       `;
       if (existing.length) errors.email = 'Email already in use';
@@ -47,8 +48,9 @@ async function UpdateProfile({ fullName, email, currentPassword, newPassword }, 
   await sql`
     update public.users
     set
-      full_name = coalesce(${fullName != null ? sanitize(fullName) : null}, full_name),
-      email = coalesce(${email != null ? email.toLowerCase() : null}, email),
+      full_name = coalesce(${fullName != null ? encryptField(sanitize(fullName)) : null}, full_name),
+      email = coalesce(${email != null ? encryptField(email.toLowerCase()) : null}, email),
+      email_hash = coalesce(${email != null ? blindIndex(email) : null}, email_hash),
       password_hash = case
         when ${newPassword || null}::text is null then password_hash
         else extensions.crypt(${newPassword || null}, extensions.gen_salt('bf'))
@@ -104,7 +106,9 @@ async function DeleteMyAccount(_input, ctx) {
     set is_active = false,
         full_name = 'Deleted User',
         phone_number = null,
+        phone_hash = null,
         email = null,
+        email_hash = null,
         password_hash = 'deleted'
     where id = ${actor.id}::uuid
   `;
@@ -160,7 +164,7 @@ async function UpdatePaymentMethod({ flouciAccount }, ctx) {
   }
   await sql`
     update public.users
-    set payment_account = ${paymentAccount ? JSON.stringify(paymentAccount) : null}::jsonb
+    set payment_account = ${encryptJson(paymentAccount)}::jsonb
     where id = ${actor.id}::uuid
   `;
   await appendAudit({
@@ -183,7 +187,7 @@ async function CreateSupportTicket({ topic, message }, ctx) {
   const cleanTopic = sanitize(topic || 'support');
   const rows = await sql`
     insert into public.support_tickets (user_id, topic, message, status)
-    values (${actor.id}::uuid, ${cleanTopic}, ${cleanMessage}, 'open')
+    values (${actor.id}::uuid, ${cleanTopic}, ${encryptField(cleanMessage)}, 'open')
     returning id, user_id, topic, status, created_at
   `;
   await appendAudit({

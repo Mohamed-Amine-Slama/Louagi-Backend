@@ -1,6 +1,7 @@
 // Delivery commands — CreateDelivery, UpdateDeliveryStatus, CancelDelivery.
 
 import { sql } from '../../db.js';
+import { encryptField, encryptJson } from '../../lib/fieldCrypto.js';
 import { dbBreaker } from '../../lib/supabase/CircuitBreaker.js';
 import { withRetry } from '../../lib/supabase/withRetry.js';
 import { safeQuery } from '../../lib/supabase/logger.js';
@@ -56,7 +57,7 @@ async function CreateDelivery({ rideId, description }, ctx) {
                 ${rideId}::uuid,
                 ${tier},
                 ${label},
-                ${description ? sanitize(description) : null},
+                ${description ? encryptField(sanitize(description)) : null},
                 ${price},
                 'pending'
               )
@@ -92,8 +93,8 @@ async function CreateDelivery({ rideId, description }, ctx) {
                 insert into public.notifications (user_id, title, body)
                 values (
                   ${driverRows[0].user_id}::uuid,
-                  'New delivery booked',
-                  ${`A ${label.toLowerCase()} delivery has been booked on your ride.`}
+                  ${encryptField('New delivery booked')},
+                  ${encryptField(`A ${label.toLowerCase()} delivery has been booked on your ride.`)}
                 )
               `;
             }
@@ -107,8 +108,8 @@ async function CreateDelivery({ rideId, description }, ctx) {
                 'delivery.created',
                 'delivery',
                 ${deliveries[0].id}::uuid,
-                ${JSON.stringify({ price, tier, label })}::jsonb,
-                ${ctx.ip ?? 'server'}
+                ${encryptJson({ price, tier, label })}::jsonb,
+                ${encryptField(ctx.ip) ?? 'server'}
               )
             `;
 
@@ -177,8 +178,8 @@ async function UpdateDeliveryStatus({ id, status }, ctx) {
       insert into public.notifications (user_id, title, body)
       values (
         ${delivery.user_id}::uuid,
-        ${status === 'picked_up' ? 'Delivery picked up' : 'Delivery completed'},
-        ${msg}
+        ${encryptField(status === 'picked_up' ? 'Delivery picked up' : 'Delivery completed')},
+        ${encryptField(msg)}
       )
     `;
   }
@@ -243,7 +244,7 @@ async function CancelDelivery({ id }, ctx) {
         'delivery.cancelled',
         'delivery',
         ${id}::uuid,
-        ${ctx.ip ?? 'server'}
+        ${encryptField(ctx.ip) ?? 'server'}
       )
     `;
     return { ok: true, userId: delivery.user_id, rideId: delivery.ride_id };
