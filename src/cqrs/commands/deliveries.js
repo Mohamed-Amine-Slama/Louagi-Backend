@@ -126,7 +126,7 @@ async function CreateDelivery({ rideId, description }, ctx) {
             };
           }),
         { operation: 'CreateDelivery' }
-      ),
+      ).then((res) => res.data),
       { label: 'CreateDelivery' }
     ),
     'CreateDelivery'

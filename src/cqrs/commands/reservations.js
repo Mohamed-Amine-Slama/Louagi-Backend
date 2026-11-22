@@ -85,7 +85,7 @@ async function CreateReservation(input, ctx) {
           }
         },
         { operation: 'CreateReservation' }
-      ),
+      ).then((res) => res.data),
       { label: 'CreateReservation' }
     ),
     'CreateReservation'
