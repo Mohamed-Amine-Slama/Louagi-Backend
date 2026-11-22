@@ -38,16 +38,18 @@ function assertRestrictedDatabaseUser() {
 
 assertRestrictedDatabaseUser();
 
-// ✅ Always use the pooler URL (port 6543) — direct connections (5432)
-// exhaust Postgres connection limits under load.
+// ✅ Use the Supavisor SESSION pooler (pooler host, port 5432). The transaction
+// pooler (6543) re-pools a backend mid-pipeline: postgres.js pipelines under
+// load, so queries strand in ClientRead and the API wedges (~250 users).
+// Session mode pins one backend per connection, so `max` must stay below the
+// project's pooler Pool Size.
 export const sql = postgres(config.databaseUrl, {
   ssl: 'require',
   max: 10,
   idle_timeout: 20,
   connect_timeout: 10,
-  // Defer prepared-statement caching: the transaction pooler (port 6543)
-  // does not support them in transaction mode.
-  prepare: false,
+  // Safe in session mode; parameterized queries then take 1 round trip, not 2.
+  prepare: true,
   connection: { search_path: 'public' },
   // PII is encrypted at the write sites; every enc:v1: value is decrypted here.
   transform: { value: { from: decryptValue } },

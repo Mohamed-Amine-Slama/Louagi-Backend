@@ -53,8 +53,10 @@ admin dashboard -> Cloudflare NGFW (WAF + rate limit) -> edge -> API gateway Wor
   `encryptJson`. Bind JSONB as raw values: postgres-js JSON-serializes
   `::jsonb` params itself.
 - `DATABASE_URL` uses the `louagi_backend` role (bypasses RLS like
-  `service_role`, but owns no tables and can't run DDL), via the transaction
-  pooler on port 6543.
+  `service_role`, but owns no tables and can't run DDL), via the session
+  pooler on port 5432. Not the transaction pooler (6543): postgres-js
+  pipelines queries under load and Supavisor transaction mode strands them,
+  wedging the API. Keep `max` in `src/db.js` below the pooler Pool Size.
 
 ## Local setup
 
