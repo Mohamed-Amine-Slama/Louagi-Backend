@@ -9,6 +9,7 @@ import {
   assertCan,
   validAdminImpersonationCode,
 } from '../../graphql/helpers.js';
+import { revokeSessions } from '../../middleware/auth.js';
 import { eventBus } from '../event-bus.js';
 import { Events } from '../events.js';
 
@@ -45,6 +46,8 @@ async function AdminSetUserActive({ userId, active }, ctx) {
     if (count === 0) return { ok: false, error: 'Cannot suspend the last admin' };
   }
   await sql`update public.users set is_active = ${Boolean(active)} where id = ${userId}::uuid`;
+  // Otherwise old tokens would come back to life on reactivation.
+  if (!active) await revokeSessions(userId);
   await appendAudit({
     actor,
     action: active ? 'user.reactivated' : 'user.suspended',

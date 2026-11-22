@@ -33,6 +33,27 @@ export async function clearActorCache(userId) {
   }
 }
 
+// With sessionId: ends that session (logout). Without: ends every session and
+// refresh token (password change/reset, suspension). jti compares as text
+// because non-session tokens carry a jti that isn't a UUID.
+export async function revokeSessions(userId, sessionId = null) {
+  await sql`
+    update public.user_sessions
+    set revoked_at = now()
+    where user_id = ${userId}::uuid
+      and revoked_at is null
+      ${sessionId ? sql`and session_id::text = ${sessionId}` : sql``}
+  `;
+  if (!sessionId) {
+    await sql`
+      update public.refresh_tokens
+      set revoked_at = now()
+      where user_id = ${userId}::uuid and revoked_at is null
+    `;
+  }
+  await clearActorCache(userId);
+}
+
 // Admin tokens only count on traffic stamped by the admin API gateway, so a
 // leaked admin token can't be replayed against the public mobile hostname.
 export async function actorFromRequest(req) {

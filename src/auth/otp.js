@@ -21,6 +21,7 @@ import { config } from '../config.js';
 import { getRedis, isRedisReady } from '../cache/redis.js';
 import { sendSms } from '../lib/sms.js';
 import { sendEmail, passwordOtpEmail } from '../lib/email.js';
+import { authAttemptsExceeded, recordAuthFailure } from '../middleware/rateLimit.js';
 
 const OTP_TTL_SEC = 300;
 const MAX_ATTEMPTS = 5;
@@ -36,6 +37,8 @@ export const OTP_PURPOSES = ['login', 'register', 'password'];
 
 const otpKey = (userId) => `otp:code:${userId}`;
 const cooldownKey = (userId) => `otp:cooldown:${userId}`;
+// Lives outside the code record so issuing a new code can't reset the guess count.
+const failureKey = (userId) => `otp:${userId}`;
 const resetKey = (tokenHash) => `pwreset:token:${tokenHash}`;
 const resetCooldownKey = (userId) => `pwreset:cooldown:${userId}`;
 
@@ -117,12 +120,16 @@ export async function consumeOtp(userId, purpose, code) {
     return { ok: false, error: 'Code expired — request a new one' };
   }
   if (record.purpose !== purpose) return { ok: false, error: 'OTP failed' };
+  if (await authAttemptsExceeded(failureKey(userId))) {
+    return { ok: false, error: 'Too many attempts. Try again later.' };
+  }
 
   const expected = Buffer.from(record.hash, 'hex');
   const provided = Buffer.from(sha256(code), 'hex');
   const match = expected.length === provided.length && crypto.timingSafeEqual(expected, provided);
 
   if (!match) {
+    await recordAuthFailure(failureKey(userId));
     record.attempts -= 1;
     if (record.attempts <= 0) {
       await storeDel(otpKey(userId));

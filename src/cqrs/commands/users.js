@@ -10,9 +10,19 @@ import {
   validateName,
   validatePassword,
 } from '../../utils/validation.js';
-import { appendAudit } from '../../graphql/helpers.js';
+import { appendAudit, loadUserSession } from '../../graphql/helpers.js';
+import { revokeSessions } from '../../middleware/auth.js';
 import { eventBus } from '../event-bus.js';
 import { Events } from '../events.js';
+
+// Ends every session after a password change and returns a fresh token pair so
+// this device stays signed in. An impersonating admin never gets real user tokens.
+async function rotateSessions(actor, ctx) {
+  await revokeSessions(actor.id);
+  if (actor.impersonatedBy) return {};
+  const session = await loadUserSession(actor.id, { ctx });
+  return session ? { accessToken: session.accessToken, refreshToken: session.refreshToken } : {};
+}
 
 async function UpdateProfile({ fullName, email, currentPassword, newPassword }, ctx) {
   const actor = ctx.actor;
@@ -65,7 +75,7 @@ async function UpdateProfile({ fullName, email, currentPassword, newPassword }, 
     ctx,
   });
   eventBus.emit(Events.user.ProfileUpdated, { userId: actor.id, fields: { fullName: fullName != null, email: email != null, password: !!newPassword } }, ctx);
-  return { ok: true };
+  return { ok: true, ...(newPassword ? await rotateSessions(actor, ctx) : {}) };
 }
 
 async function UpdateNotificationPrefs({ sms, push, marketing }, ctx) {
@@ -237,7 +247,7 @@ async function ChangePasswordSecure({ currentPassword, newPassword }, ctx) {
     ctx,
   });
   eventBus.emit(Events.user.ProfileUpdated, { userId: actor.id, fields: { password: true } }, ctx);
-  return { ok: true };
+  return { ok: true, ...(await rotateSessions(actor, ctx)) };
 }
 
 export const commands = {

@@ -26,7 +26,7 @@ import {
   validateTunisianPhone,
 } from '../../utils/validation.js';
 import { appendAudit, loadUserSession } from '../../graphql/helpers.js';
-import { actorFromRequest } from '../../middleware/auth.js';
+import { actorFromRequest, revokeSessions } from '../../middleware/auth.js';
 import { authAttemptsExceeded, recordAuthFailure } from '../../middleware/rateLimit.js';
 import {
   consumeOtp,
@@ -218,6 +218,9 @@ async function Logout({ refreshToken }, ctx) {
   // client *before* the token is invalidated; resolve actor from the request
   // instead of relying on auth middleware (we mark this command public).
   const actor = await actorFromRequest(ctx.req);
+  // From the verified token, not actor: admin tokens resolve to no actor off the gateway.
+  const claims = verifyToken(ctx.req.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1]);
+  if (claims?.sub && claims.jti) await revokeSessions(claims.sub, claims.jti);
   if (actor) {
     await delSession(actor.id);
     eventBus.emit(Events.user.LoggedOut, { userId: actor.id }, ctx);
@@ -382,6 +385,7 @@ async function ResetPasswordWithToken({ token, newPassword }, ctx) {
     set password_hash = extensions.crypt(${newPassword}, extensions.gen_salt('bf'))
     where id = ${userId}::uuid
   `;
+  await revokeSessions(userId);
   await appendAudit({
     actor: { id: userId, role: null },
     action: 'password.reset_completed',
